@@ -15,13 +15,13 @@ To list out my *"requirements"* for the home lab:
 
 I have started off with a single [Pine64](https://www.pine64.org/?page_id=1194) server having 2 GB memory in total, running maybe 4 or 5 containers. As of this writing, the stack now has 3 servers, hosting over 30 containers... *Yes, it blew up a little.*
 
-> You can see it in action at [demo.viktoradam.net](https://demo.viktoradam.net) if you're interested in the result. To be clear, this [Ghost](https://ghost.org/) blog is also running on it as well.
+> You can see it in action at [demo.viktoradam.net](https://demo.viktoradam.net) if you're interested in the result. To be clear, this [Ghost](https://ghost.org/) blog is running on it as well.
 
 ## Physical servers
 
 The current setup has 2 [Pine64](https://www.pine64.org/?page_id=1194) instances and a [Rock64](https://www.pine64.org/?page_id=7147) from the same manufacturer. They are all 64-bits ARM servers around the size of a [Raspberry Pi](https://www.raspberrypi.org/). In total, I now have 12 CPU cores with 7 GB of memory to host all the services I'm running. They are great little computers for around $15-45 per instance depending on available memory.
 
-You can run a few different flavors of Linux on them. I've opted to use [Armbian](https://www.armbian.com/) that gives me a Ubuntu derivative. This is particularly important for Docker, which only has official support for a few of them on the *arm64/aarch64* architecture, Ubuntu being one of them. This means that installing and upgrading Docker is as simple as:
+You can run a few different flavors of Linux on them. I've opted to use [Armbian](https://www.armbian.com/) that gives me a Ubuntu derivative. This is particularly important for Docker, which only has official support for a few of them on the *arm64/aarch64* architecture, Ubuntu being one of those. This means that installing and upgrading Docker is as simple as:
 
 ```shell
 $ curl -fsSL get.docker.com | sudo sh
