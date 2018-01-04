@@ -1,7 +1,5 @@
 # Home Lab - Overview
 
-# Home Lab - Overview
-
 This post is the first in a series explaining the setup I use to run my websites and their related services at home on cheap hardware using containers.
 
 ## Background
