@@ -19,7 +19,7 @@ I have started off with a single [Pine64](https://www.pine64.org/?page_id=1194) 
 
 ## Physical servers
 
-The current setup has 2 [Pine64](https://www.pine64.org/?page_id=1194) instances and a [Rock64](https://www.pine64.org/?page_id=7147) from the same manufacturer. They are all 64-bits ARM servers around the size of a [Raspberry Pi](https://www.raspberrypi.org/). In total, I now have 12 CPU cores with 7 GB of memory to host all the services I'm running. They are great little computers for around $15-45 per instance depending on available memory.
+The current setup has 2 [Pine64](https://www.pine64.org/?page_id=1194) instances and a [Rock64](https://www.pine64.org/?page_id=7147) from the same manufacturer. They are all 64-bit ARM servers around the size of a [Raspberry Pi](https://www.raspberrypi.org/). In total, I now have 12 CPU cores with 7 GB of memory to host all the services I'm running. They are great little computers for around $15-45 per instance depending on available memory.
 
 You can run a few different flavors of Linux on them. I've opted to use [Armbian](https://www.armbian.com/) that gives me a Ubuntu derivative. This is particularly important for Docker, which only has official support for a few of them on the *arm64/aarch64* architecture, Ubuntu being one of those. This means that installing and upgrading Docker is as simple as:
 
@@ -78,4 +78,4 @@ See all the related posts under the [Home Lab](https://blog.viktoradam.net/tag/h
 So far, the series has these parts ready:
 
 1. *Home Lab - Overview*
-2. [Home Lab - Setting up for Docker](TODO link)
+2. [Home Lab - Setting up for Docker](https://blog.viktoradam.net/2018/01/05/home-lab-part-2-docker-setup/)
