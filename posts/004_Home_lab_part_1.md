@@ -75,6 +75,7 @@ Hopefully this overview has piqued your interest on some of the topics and got y
 
 See all the related posts under the [Home Lab](https://blog.viktoradam.net/tag/home-lab/) section.
 
-So far the series has these parts ready:
+So far, the series has these parts ready:
 
-1. Home Lab - Overview
+1. *Home Lab - Overview*
+2. [Home Lab - Setting up for Docker](TODO link)

@@ -1,6 +1,6 @@
-# Home Lab - Hosting services with Docker
+# Home Lab - Setting up for Docker
 
-In the second post of the series I dive into the details of what is involved running an ever-growing number of applications on a handful of physical servers on my Home Lab.
+In the second post of the series I dive into the details of what is involved setting up for an ever-growing number of applications on a handful of physical servers on my Home Lab.
 
 ## Pine64
 
@@ -113,7 +113,7 @@ services:
 
 This example would create two services. The `web` service is an [Nginx](TODO) instance listening on port `80` for HTTP requests. The `internal` service is an [Apache httpd](TODO) instance listening on port `8080` from outside the container - internally it also listens on port 80, but this won't cause any issues when running with Docker. You can have as many applications listening on the same port as you want, they just have to *bind* to different external ports.
 
-It's time to try them! Let's save the above *YAML* content as `docker-compose.yml`, create an index HTML file for each of them and check if they serve them up OK.
+It's time to try them! Let's save the above *YAML* content as `docker-compose.yml`, create an index *HTML* file for each of them and check if they serve them up OK.
 
 ```shell
 $ docker-compose up -d
@@ -161,7 +161,7 @@ $ docker-compose up -d
 
 The `git pull` will get the changes from your Git repository, then `docker-compose pull` will make sure that you have all the Docker images locally that are defined in the (possibly) updated YAML file. The final `docker-compose up -d` command will start any new services, recreate the ones where the configuration has changed and just leave alone the rest. Now you can use your favourite desktop text editor if you want instead of relying on tools like `vim` or `nano` if you don't like those. On that note though, they are *pretty awesome*, you should definitely look into them!
 
-Having set this up, there's nothing stopping us now to implement a very basic [continuous deployment](TODO) pipeline to automate the updates after any changes in the configuration. We can use [cron](TODO) to do what we've just done automatically every now and then. I used to use this initially and worked OK for me while I only had a handful of services. Let's say we want to check for changes every 15 minutes. Just edit your `cron` schedule with `crontab -e` and add a line like this:
+Having this set up, there's nothing stopping us now to implement a very basic [continuous deployment](TODO) pipeline to automate the updates after any changes in the configuration. We can use [cron](TODO) to do what we've just done automatically every now and then. I used to use this initially and worked OK for me while I only had a handful of services. Let's say we want to check for changes every 15 minutes. Just edit your `cron` schedule with `crontab -e` and add a line like this:
 
 ```
 0/15 * * * *   cd /to/your/cloned/folder && git pull && docker-compose pull && docker-compose up -d
@@ -171,7 +171,13 @@ Having set this up, there's nothing stopping us now to implement a very basic [c
 
 *Congratulations!* You now have a set of Docker containers running, which can be updated and configured with editing a simple *YAML* file and doing a `git push`.
 
-## Swarm mode
+## Up next
 
-... (TODO maybe in a separate post?)
+This solution is OK to run a few applications but doesn't scale very well. It's also not super reliable, given that you have everything on a single server, if that goes down, nothing is accessible anymore.
 
+In the next part of the [Home Lab](https://blog.viktoradam.net/tag/home-lab/) series I'll show a way to build on what we have here and expand the setup to multiple servers. We will keep the easy configuration and the continuous deployments but we'll *hopefully* remove the single point of failure.
+
+Check out the other posts in the series:
+
+1. [Home Lab - Overview](TODO)
+2. *Home Lab - Setting up for Docker*
