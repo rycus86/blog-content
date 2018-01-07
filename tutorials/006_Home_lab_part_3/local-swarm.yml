@@ -1,0 +1,46 @@
+# This Composefile allows starting 3 containers
+# on a single machine that will each have a Docker daemon running.
+# We can then join these to form a Swarm with each other (on a single laptop).
+
+version: '2'
+services:
+
+  leader:
+    image: docker:17.09-dind
+    privileged: true
+    hostname: leader
+    container_name: leader
+    ports:
+      - 80:80
+      - 8080:8080
+    volumes:
+      - ./simple-stack.yml:/demo/stack.yml:ro
+    networks:
+      demo:
+        ipv4_address: 192.168.2.1
+
+  worker-1:
+    image: docker:17.09-dind
+    privileged: true
+    hostname: worker-1
+    container_name: worker-1
+    networks:
+      demo:
+        ipv4_address: 192.168.2.2
+
+  worker-2:
+    image: docker:17.09-dind
+    privileged: true
+    hostname: worker-2
+    container_name: worker-2
+    networks:
+      demo:
+        ipv4_address: 192.168.2.3
+
+networks:
+  demo:
+    driver: bridge
+    ipam:
+     config:
+       - subnet: 192.168.2.0/24
+         gateway: 192.168.2.200
