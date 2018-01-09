@@ -207,10 +207,7 @@ You can also notice that the Traefik container is always running on the leader n
 
 If you used `docker-compose`, you know how easy it is to share files or folders from your host with the containers. When running tasks spanning multiple nodes in the Swarm cluster, things could get a *little bit* trickier.
 
-Let's get our *YAML* file a bit cleaner by extracting the inline Python code into its own file and mounting it back to the services.
-
-
-You can find it in my [GitHub repo](TODO) but it's pretty much the same what we had inlined above. We can now change the service configuration to use the `sample-server.py`, like seen below, right? *Well*, not necessarily...
+Let's get our *YAML* file a bit cleaner by extracting the inline Python code into its own file and mounting it back to the services. You can find it in my [GitHub repo](TODO) but it's pretty much the same what we had inlined above. We can now change the service configuration to use the `sample-server.py`, like seen below, right? *Well*, not necessarily...
 
 ```yaml
 ... <TODO>
