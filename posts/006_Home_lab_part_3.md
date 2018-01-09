@@ -208,3 +208,133 @@ You can also notice that the Traefik container is always running on the leader n
 If you used `docker-compose`, you know how easy it is to share files or folders from your host with the containers. When running tasks spanning multiple nodes in the Swarm cluster, things could get a *little bit* trickier.
 
 Let's get our *YAML* file a bit cleaner by extracting the inline Python code into its own file and mounting it back to the services.
+
+
+You can find it in my [GitHub repo](TODO) but it's pretty much the same what we had inlined above. We can now change the service configuration to use the `sample-server.py`, like seen below, right? *Well*, not necessarily...
+
+```yaml
+... <TODO>
+  ping:
+    image: python:3
+    command: /app/server.py --ping
+    volumes:
+      - ./sample-server.py:/app/server.py
+...
+``` 
+
+The problem with this is that the `./sample-server.py` will be expanded to an absolute path on the leader node. If a task of the service gets scheduled to another node, it will expect the same file to exist at the exact same absolute path on the host. What can we do then?
+
+You could make sure the necessary files or folders exist on all nodes individually. This might work OK if you're only mounting in read-only mode but you'd still need to update the files on the host in multiple locations, which is not cool.
+
+### Mount from shared directory
+
+You could create a shared directory and mount it with NFS as read/write on all nodes under the same path. This way containers running on any of the nodes *should* be able to write data there and read it, even if the task gets rescheduled to another node. I said it *should* work because you can run into file permission issues pretty quickly. You might have different *uids* and *gids* on the individual nodes that might map differently on NFS. This is what seems to work for me, more or less:
+
+```
+<TODO /etc/export line>
+```
+
+The unknown users (like ones that only exist inside a container) will be mapped to a known, existing `uid` (TODO). I'm still having issues with some my services not being able to share these directories from all the nodes but I think it's to do with how my setup has evolved and not necessarily with this method, *YMMV*.
+
+```yaml
+... <TODO>
+  ping:
+    image: python:3
+    command: /app/server.py --ping
+    volumes:
+      - /mnt/shared/sample-server.py:/app/server.py
+...
+``` 
+
+The service configuration in the *YAML* would look something like the above. You'll also have to make sure that the shared folder exists on all service, so it means a bit of manual setup when adding a new node to the cluster, which is not awesome.
+
+### NFS service mounts
+
+I've recently learned that Docker also supports NFS mounts natively. This is very similar to the option above with one important distinction. You can declare your NFS mount targets on the containers and that means the mount doesn't have to exist on the host. (TODO verify)
+
+```yaml
+... <TODO>
+  ping:
+    image: python:3
+    command: /app/server.py --ping
+    mounts:
+      - type: nfs
+        target, src <TODO>
+...
+```
+
+Now as long as the target share is available we can start containers using files from there. If the share goes away though, it's bad luck for your services. (TODO what happens at startup/runtime?)
+
+### Configs and secrets
+
+Another option worth mentioning for *read-only files* like webserver configuration that you know when the container start and can only be updated if the related service is updated too. Docker service [configs](TODO) allow you to save data (text or binary TODO) in the Swarm cluster and mount it in containers as a file.
+
+```yaml
+... <TODO>
+  ping:
+    image: python:3
+    command: /app/server.py --ping
+    configs:
+      - target: app/server.py <TODO>
+...
+# this top level mapping defines the
+# available configs for this stack
+configs:
+  TODO + external example
+```
+
+Service [secrets](TODO) are defined in a similar way (generally just a change from `configs` to `secrets`) but Swarm will also encrypt these (TODO how, not configs?). Be aware that both configs and secrets are immutable so you won't be able to update them. You can also not delete them as long as they're in use by at least one service.
+
+You can *sort of* update a service config by using a different name for it:
+
+```shell
+$ docker config create svc-config-v2
+<TODO>
+$ docker service update a_service --config-rm svc-config-v1 --config-add svc-config-v2
+<TODO>
+$ docker config rm svc-config-v1
+<TODO>
+```
+
+Note that this doesn't work with `docker stack deploy` unfortunately, as it would use the same name for the config or secret.
+
+```shell
+$ docker stack deploy demo -c stack.yml
+<TODO error message>
+```
+
+### Volume drivers
+
+Docker's plugin system allows registering additional volume drivers along with the ones built-in. You can for example bind a volume to an *S3 bucket* or (TODO example). Check out the [documentation](TODO) to see what's available or search on GitHub for other open-source implementations. Depending on your use-case, you might find people having the same problem where they already solved it in a reusable way.
+
+(TODO example of one?)
+
+## Updating stacks
+
+If you're switching from a *Compose* CD workflow to Swarm, the easiest change would be executing `docker stack deploy` instead of `docker-compose up`. Be aware though that this may cause your services to reschedule their tasks on every invocation which might mean container restarts. Make sure you have a sensible [update-config](TODO) and [rollback-config](TODO) if you go for this. Better yet, make sure you have these in any case!
+
+I've opted to use a webhooks as triggers for updates on my stack. I have a set of [webhook-proxy](TODO) applications running in my Home Lab, one is available externally that validates the requests and posts them to another, internal instance that also have access to the Docker engine through the API. The latter is the instance where the main update logic is implemented.
+
+When I update the stack *YAML* or a configuration file in a private [BitBucket](TODO) repo, it sends a webhook request that will trigger these main steps:
+
+1. Update files with `git pull`
+2. Restart services using config files that were updated
+3. Docker stack deploy
+
+There are a couple more bits and pieces in the actual pipeline but this is the main logic. Very similar to the `docker-compose` + `cron` way but instead of constantly checking from Git, we just wait for the external service to signal us the change.
+
+I also have a workflow for Docker image updates on [my Docker Hub](TODO) account. When a new image is pushed and a webhook is posted, a *webhook-proxy* handler will:
+
+1. Pull the image
+2. Compute the image hash
+3. Update services using the image to this version
+
+You can see an extract of this [in this GitHub repo](TODO) that can give you a better idea of what is going on. The command line equivalent would be something like this:
+
+```shell
+$ docker service update a_service --image some/image:latest@sha256:<sha-hash>
+```
+
+> TODO somewhere there should be examples for
+Docker service ls / ps
+Docker service update / rm
