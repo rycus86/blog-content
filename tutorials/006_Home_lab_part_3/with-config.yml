@@ -1,0 +1,61 @@
+version: '3.4'
+services:
+
+  traefik:
+    image: traefik
+    command: >
+      --web -c /dev/null
+      --docker --docker.swarmmode --docker.domain=docker.localhost
+      --logLevel=DEBUG --accessLog
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+    labels:
+      - 'traefik.enable=false'
+    networks:
+      - apps
+    ports:
+      - '80:80'
+      - '8080:8080'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  ping:
+    image: python:3-alpine
+    command: python /app/server.py --ping
+    networks:
+      - apps
+    deploy:
+      mode: global
+      labels:
+        - 'traefik.port=8080'
+        - 'traefik.docker.network=demo_apps'
+        - 'traefik.frontend.rule=PathPrefixStrip: /ping'
+    configs:
+      - source: server_main_module
+        target: /app/server.py
+        mode: 0440
+
+  hello:
+    image: python:3-alpine
+    command: python /app/server.py --hello
+    networks:
+      - apps
+    deploy:
+      replicas: 2
+      labels:
+        - 'traefik.port=8080'
+        - 'traefik.docker.network=demo_apps'
+        - 'traefik.frontend.rule=PathPrefixStrip: /hello/'
+    configs:
+      - source: server_main_module
+        target: /app/server.py
+        mode: 0440
+
+networks:
+  apps:
+
+configs:
+  server_main_module:
+    file: ./sample_http_server.py

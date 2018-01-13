@@ -15,6 +15,7 @@ services:
       - 8080:8080
     volumes:
       - ./simple-stack.yml:/demo/stack.yml:ro
+      - ./sample_http_server.py:/demo/server.py
     networks:
       demo:
         ipv4_address: 192.168.2.1

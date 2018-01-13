@@ -1,0 +1,152 @@
+server:
+  host: '0.0.0.0'
+  port: '6002'
+  imports:
+    - ./webhook_helper.py
+
+endpoints:
+
+  # Update services with a new image
+  - /update/service:
+      method: 'POST'
+
+      headers:
+        X-From: 'source'
+        X-Auth-Key: 'secret_key'
+
+      body:
+        repo: 'rycus86/.+'
+        tag: '^latest$'
+
+      actions:
+        - log:
+            message: |
+              Updating for {{ request.json.source }} at {{ datetime }}
+              Requested to update services for {{ request.json.repo }}:{{ request.json.tag }} ...
+
+        - docker:
+            $images:
+              $pull:
+                name: '{{ request.json.repo }}'
+                tag:  '{{ request.json.tag }}'
+            output: >
+              {% set tag_idx       = result.attrs.RepoTags.index('%s:%s'|format(request.json.repo, request.json.tag)) %}
+              {% set replace_from  = '%s@'|format(request.json.repo) %}
+              {% set replace_to    = '%s:%s@'|format(request.json.repo, request.json.tag) %}
+              {% set target_digest = result.attrs.RepoDigests[tag_idx]|replace(replace_from, replace_to) %}
+              The target image digest is: {{ target_digest }}
+              {% set _ = context.set('image_spec', target_digest) %}
+
+        - docker:
+            $services:
+              $list:
+            output: >
+              {% set image_spec = '%s:%s'|format(request.json.repo, request.json.tag) %}
+              {% for service in result -%}
+                {% if service.task_template.container_spec.image.startswith(image_spec) -%}
+                  Updating service: {{ service.name }} ... {{ service.update(image=context.image_spec) }}
+                {% endif %}
+              {% endfor %}
+
+        - metrics:
+            summary:
+              name: webhook_update_service
+              help: Requests to update services
+              labels:
+                repository: '{{ request.json.repo }}'
+                tag: '{{ request.json.tag }}'
+
+  # Restart a docker service (for a changed configuration file)
+  - /restart/service:
+      method: 'POST'
+      async: true
+
+      headers:
+        X-From: 'source'
+        X-Auth-Key: 'secret_key'
+
+      body:
+        service: '.+'
+
+      actions:
+        - log:
+            message: |
+              Restarting {{ request.json.service }}
+
+        - docker:
+            $services:
+              $get:
+                service_id: 'demo_{{ request.json.service }}'
+            output: >
+              {% set service = result %}
+              Restarting service: {{ service.name }} ... {{ service.update(force_update=True) }}
+
+        - metrics:
+            summary:
+              name: webhook_restart_service
+              help: Requests to restart services
+              labels:
+                service: '{{ request.json.service }}'
+
+  # Update the project, restart services with changed configuration files and run docker stack deploy
+  - /update/stack:
+      method: 'POST'
+
+      headers:
+        X-From: 'source'
+        X-Auth-Key: 'secret_key'
+
+      actions:
+        - log:
+            message: >
+              Updating for changes:
+              {% for change in request.json.changes %}
+              - [{{ change.new.target.date }}] {{ change.new.target.message|trim }}
+              {% endfor %}
+
+        - execute:
+            command: |
+              cd /etc/config
+
+              for file in *.tmpl *.ini *.conf *.yml; do
+                md5sum $file > $file.md5sum
+              done
+
+        - git-update:
+            volumes:
+              - /var/project:/workdir
+              - /home/user/.ssh:/root/.ssh:ro
+
+        - execute:
+            command: |
+              cd /etc/config
+
+              for file in *.tmpl *.ini *.conf *.yml; do
+                md5sum $file > $file.md5sum.updated
+              done
+
+        - restart-changed:
+            config_dir: /etc/config
+            volume_base_dir: /var/project
+
+        - execute:
+            command: |
+              cd /etc/config
+
+              rm -f *.md5sum
+              rm -f *.md5sum.updated
+
+            output: Temporary files have been cleaned up
+
+        - stack-deploy:
+            working_dir: /var/project
+            volumes:
+              - /usr/bin/docker:/usr/local/bin/docker
+              - /var/run/docker.sock:/var/run/docker.sock
+              - /home/user/.docker/config.json:/root/.docker/config.json:ro
+              - /var/project:/var/project:ro
+
+        - metrics:
+            summary:
+              name: webhook_update_stack
+              help: Requests to update the whole stack

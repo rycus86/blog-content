@@ -252,10 +252,10 @@ You could make sure the necessary files or folders exist on all nodes individual
 You could create a shared directory and mount it with NFS as read/write on all nodes under the same path. This way containers running on any of the nodes *should* be able to write data there and read it, even if the task gets rescheduled to another node. I said it *should* work because you can run into file permission issues pretty quickly. You might have different *uids* and *gids* on the individual nodes that might map differently on NFS. This is what seems to work for me, more or less:
 
 ```
-<TODO /etc/export line>
+/var/shared/folder 	192.168.2.0/24(rw,fsid=0,sync,crossmnt,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
 ```
 
-The unknown users (like ones that only exist inside a container) will be mapped to a known, existing `uid` (TODO). I'm still having issues with some my services not being able to share these directories from all the nodes but I think it's to do with how my setup has evolved and not necessarily with this method, *YMMV*.
+The unknown users (like ones that only exist inside a container) will be mapped to a known, existing `uid` and `gid`. I'm still having issues with some my services not being able to share these directories from all the nodes but I think it's to do with how my setup has evolved and not necessarily with this method, *YMMV*.
 
 ```yaml
 ...
@@ -271,32 +271,43 @@ The service configuration in the *YAML* would look something like the above. You
 
 ### NFS service mounts
 
-I've recently learned that Docker also supports NFS mounts natively. This is very similar to the option above with one important distinction. You can declare your NFS mount targets on the containers and that means the mount doesn't have to exist on the host. (TODO verify)
+I've recently learned that Docker also supports NFS mounts natively. This is very similar to the option above with one important distinction. You can declare your NFS mount targets on the containers and that means the mount doesn't have to exist on the host. *Note* that the kernel still has to support NFS and the host systems has to have the required libraries installed, `nfs-utils` for example for Debian based systems.
 
 ```yaml
-... <TODO>
+...
   ping:
     image: python:3-alpine
     command: /app/server.py --ping
-    mounts:
+    volumes:
       - type: volume
-        target, src <TODO>
+        source: remote-folder
+        target: /app
+        read_only: true
+        # if you don't want the contents to be
+        # copied into a new folder for the volume
+        volume:
+          nocopy: true
 ...
+volumes:
+  prometheus-data:
+    driver: local
+    driver_opts:
+      type: nfs4
+      device: :/shared
+      o: addr=192.168.15.25,rsize=8192,wsize=8192,timeo=14,intr
 ```
 
-> docker run --rm -it --mount 'type=volume,volume-driver=local,dst=/sample,volume-opt=type=nfs,volume-opt=device=192.168.0.52:/mnt/shared,"volume-opt=o=addr=192.168.0.52,rsize=8192,wsize=8192,timeo=14,intr"' debian bash
-
-Now as long as the target share is available we can start containers using files from there. If the share goes away though, it's bad luck for your services. (TODO what happens at startup/runtime?)
+Now as long as the target share is available we can start containers using files from there. If the share goes away though, it's bad luck for your services.
 
 ### Configs and secrets
 
 Another option worth mentioning for *read-only files* like webserver configuration that you know when the container start and can only be updated if the related service is updated too. Docker service [configs](https://docs.docker.com/engine/swarm/configs/) allow you to save data (text or binary) in the Swarm cluster and mount it in containers as a file.
 
 ```yaml
-... <TODO>
+...
   ping:
     image: python:3-alpine
-    command: /app/server.py --ping
+    command: python /app/server.py --ping
     configs:
       - source: server_main_module
         target: /app/server.py
@@ -329,18 +340,25 @@ $ docker config rm svc-config-v1
 svc-config-v1
 ```
 
-Note that this doesn't work with `docker stack deploy` unfortunately, as it would use the same name for the config or secret and you can not update an existing one.
-
-```shell
-$ docker stack deploy demo -c stack.yml
-<TODO error message>
-```
-
 ### Storage drivers
 
 Docker's plugin system allows registering additional volume drivers along with the ones built-in. You can for example bind a volume to an *S3 bucket* or a *NetApp* share. Check out the [documentation](https://docs.docker.com/engine/extend/legacy_plugins/#volume-plugins) to see what's available or search on GitHub for other open-source implementations. Depending on your use-case, you might find people having the same problem where they already solved it in a reusable way.
 
-(TODO example of one? - CIFS perhaps)
+Let's look at a small example for *CIFS* shares, using the [Netshare plugin](https://github.com/ContainX/docker-volume-netshare). We'll grab the binary, start the plugin and start a container using it.
+
+```shell
+$ wget -O /usr/local/bin/docker-volume-netshare https://github.com/ContainX/docker-volume-netshare/releases/download/v0.34/docker-volume-netshare_0.34_linux_amd64-bin
+$ chmod +x /usr/local/bin/docker-volume-netshare
+$ sudo docker-volume-netshare cifs &
+# the plugin should be running at this point
+$ docker run --rm -it \
+    --volume-driver cifs \
+    -v 192.168.15.25/Shared:/mnt/shared:ro \
+    alpine ls /mnt/shared
+hello.txt remote_file.dat
+```
+
+This can easily be adapted for Swarm services as well.
 
 ## Updating stacks
 
@@ -362,11 +380,13 @@ I also have a workflow for Docker image updates on [my Docker Hub](https://hub.d
 2. Compute the image hash
 3. Update services using the image to this version
 
-You can see an [extract of this here](TODO sample into GitHub blog-content/tutorial) that can give you a better idea of what is going on. The command line equivalent would be something like this:
+The command line equivalent would be something like this:
 
 ```shell
 $ docker service update some_service --image some/image:latest@sha256:<sha-hash>
 ```
+
+You can see an [extract of these here](https://github.com/rycus86/blog-content/tree/master/tutorials/006_Home_lab_part_3), in the `webhook*` files, that can give you a better idea of what is going on.
 
 ## Wrapping up
 
