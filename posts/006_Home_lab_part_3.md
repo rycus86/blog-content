@@ -10,7 +10,7 @@ This works for a handful of applications, but what happens when you need to scal
 
 ## Docker Swarm
 
-If you like how you can define configuration for your services with `docker-compose`, you're going to love [Docker Swarm](https://docs.docker.com/engine/swarm/)! You can use a very similar *YAML* description for the whole stack with additional features for deployment logic and configuration management. The concept of a service is much more emphasised than in Compose. Each service encapsulates a number of tasks that will be scheduled on nodes in the cluster. The orchestration and lifecycle management is all done for you, you just need to take care of the configuration.
+If you like how you can define configuration for your services with `docker-compose`, you're going to love [Docker Swarm](https://docs.docker.com/engine/swarm/)! You can use a very similar *YAML* description for the whole stack with additional features for deployment logic and configuration management. The concept of a service is much more emphasized than in Compose. Each service encapsulates a number of tasks that will be scheduled on nodes in the cluster. The orchestration and lifecycle management is all done for you, you just need to take care of the configuration.
 
 Let's start with setting up the servers first. To start with, let's assume we have 3 boxes with the same CPU architecture, running Linux and they all have Docker installed already. Pick one leader and make the other two worker nodes.
 
@@ -46,7 +46,7 @@ jtlbeh4u0c4krega1u2agyifh     worker-1            Ready               Active
 ffkef7x4l1njjxeinxqy6zwwd     worker-2            Ready               Active              
 ```
 
-So far so good, the 3 nodes all show up and one of them is a leader. The [recommendation](https://docs.docker.com/engine/swarm/admin_guide/#maintain-the-quorum-of-managers) is to have odd number of leaders, because scheduling and cluster management needs concensus through [Raft](https://docs.docker.com/engine/swarm/raft/) and even numbers of leaders might be split about the current state of things.
+So far so good, the 3 nodes all show up and one of them is a leader. The [recommendation](https://docs.docker.com/engine/swarm/admin_guide/#maintain-the-quorum-of-managers) is to have odd number of leaders, because scheduling and cluster management needs consensus through [Raft](https://docs.docker.com/engine/swarm/raft/) and even numbers of leaders might be split about the current state of things.
 
 ## Deploying stacks
 
@@ -171,7 +171,7 @@ dk0d1lcv98l5        demo_traefik        replicated          1/1                 
 
 All containers started by the tasks will be attached to this network where they can talk to each other using service names as hostnames, even if they are running on different physical hosts, *pretty cool!* [Overlay networks](https://docs.docker.com/engine/swarm/networking/) are neat, check out the documentation on the link if you're interested to know more about them. The containers also get their own unique IP addresses on this network and as they start up, Traefik will add routing to them using these addresses. You can see this on a nice dashboard at the `http://localhost:8080/dashboard/` URL.
 
-    TODO Image of the dashboard
+![Traefik Dashboard](/content/images/2018/01/traefik-dashboard-min.png)
 
 We can also interact with services in the stack using simple `docker` commands, like these:
 
@@ -260,7 +260,7 @@ The unknown users (like ones that only exist inside a container) will be mapped 
 ```yaml
 ...
   ping:
-    image: python:3
+    image: python:3-alpine
     command: /app/server.py --ping
     volumes:
       - /mnt/shared/sample_http_server.py:/app/server.py
@@ -276,13 +276,15 @@ I've recently learned that Docker also supports NFS mounts natively. This is ver
 ```yaml
 ... <TODO>
   ping:
-    image: python:3
+    image: python:3-alpine
     command: /app/server.py --ping
     mounts:
-      - type: nfs
+      - type: volume
         target, src <TODO>
 ...
 ```
+
+> docker run --rm -it --mount 'type=volume,volume-driver=local,dst=/sample,volume-opt=type=nfs,volume-opt=device=192.168.0.52:/mnt/shared,"volume-opt=o=addr=192.168.0.52,rsize=8192,wsize=8192,timeo=14,intr"' debian bash
 
 Now as long as the target share is available we can start containers using files from there. If the share goes away though, it's bad luck for your services. (TODO what happens at startup/runtime?)
 
@@ -293,7 +295,7 @@ Another option worth mentioning for *read-only files* like webserver configurati
 ```yaml
 ... <TODO>
   ping:
-    image: python:3
+    image: python:3-alpine
     command: /app/server.py --ping
     configs:
       - source: server_main_module
@@ -336,7 +338,7 @@ $ docker stack deploy demo -c stack.yml
 
 ### Storage drivers
 
-Docker's plugin system allows registering additional volume drivers along with the ones built-in. You can for example bind a volume to an *S3 bucket* or *NetApp* share. Check out the [documentation](https://docs.docker.com/engine/extend/legacy_plugins/#volume-plugins) to see what's available or search on GitHub for other open-source implementations. Depending on your use-case, you might find people having the same problem where they already solved it in a reusable way.
+Docker's plugin system allows registering additional volume drivers along with the ones built-in. You can for example bind a volume to an *S3 bucket* or a *NetApp* share. Check out the [documentation](https://docs.docker.com/engine/extend/legacy_plugins/#volume-plugins) to see what's available or search on GitHub for other open-source implementations. Depending on your use-case, you might find people having the same problem where they already solved it in a reusable way.
 
 (TODO example of one? - CIFS perhaps)
 

@@ -1,0 +1,16 @@
+version: '2'
+services:
+  sample:
+    image: debian
+    command: bash
+    tty: true
+    volumes:
+      - remote:/mnt/remote:ro
+
+volumes:
+  remote:
+    driver: local
+    driver_opts:
+      type: nfs4
+      device: :/shared
+      o: addr=192.168.15.25,rsize=8192,wsize=8192,timeo=14,intr
