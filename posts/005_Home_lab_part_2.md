@@ -223,3 +223,4 @@ Check out the other posts in the series:
 
 1. [Home Lab - Overview](https://blog.viktoradam.net/2018/01/03/home-lab-part1-overview/)
 2. *Home Lab - Setting up for Docker*
+3. [Home Lab - Swarming servers](https://blog.viktoradam.net/2018/01/13/home-lab-part3-swarm-cluster/)

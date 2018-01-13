@@ -4,7 +4,7 @@ This third post in the series explains how I extended my stack to multiple serve
 
 ## Quick recap
 
-In the [previous post](https://blog.viktoradam.net/2018/01/05/home-lab-part-2-docker-setup/), we have brought up a small ARMv8 server running Armbian and installed Docker on it. We also had a look at configuring multiple services on a single box using `docker-compose` and I showed a very simple pipeline for automatically deploying changes and new applications from a version controlled repository where the configuration lives for them.
+In the [previous post](https://blog.viktoradam.net/2018/01/05/home-lab-part-2-docker-setup/), we have brought up a small ARMv8 server running Armbian and installed Docker on it. We also had a look at configuring multiple services on a single box using `docker-compose`, and I showed a very simple pipeline for automatically deploying changes and new applications from a version controlled repository where the configuration lives for them.
 
 This works for a handful of applications, but what happens when you need to scale out to multiple servers to have enough resources for all your services?
 
@@ -140,13 +140,15 @@ We have a few things going on in here, let's start with the Python services. The
 
 > I [love](https://blog.viktoradam.net/2017/12/16/python-microservices-with-flask/) how simple but powerful Python is. Using only standard libraries we have a simple HTTP endpoint in about 15 lines. Just awesome!
 
-Sure, this is not a production-ready server or production-quality code, but I find it amazing how easy it is to code something like this up in Python for demonstration purposes for example. *Anyways*, back to our stack!
+Sure, this is not a production-ready server or production-quality code, but I find it amazing how easy it is to code something like this up in Python for demonstration purposes, for example. *Anyways*, back to our stack!
 
-The third service is an awesome, modern reverse proxy, called [Traefik](https://traefik.io/), which was built with dynamic backends in mind from the start. It makes it perfect for routing traffic to services running in containers that may come and go all the time when their configuration changes for example. Traefik is super powerful and there are lots of nice things built into it (like HTTP/2 support, automatic SSL with [Let's Encrypt](https://letsencrypt.org/), metrics support, etc.), but for this post it's enough to know that it can read state information from Docker and adjust its routing configuration automatically based on metadata.
+The third service is an awesome, modern reverse proxy, called [Traefik](https://traefik.io/), which was built with dynamic backends in mind from the start. This makes it perfect for routing traffic to services running in containers that may come and go all the time when their configuration changes, for example. Traefik is super powerful and there are lots of nice things built into it (like HTTP/2 support, automatic SSL with [Let's Encrypt](https://letsencrypt.org/), metrics support, etc.), but for this post, it's enough to know that it can read state information from Docker and adjust its routing configuration automatically based on metadata.
 
 > Make sure to check out their excellent [documentation](https://docs.traefik.io/) if you'd like to know more about Traefik!
 
-In our example, requests to `/hello/<name>` will be handled by the `hello` service and requests to `/ping` will be served by tasks of the `ping` service. This is configured for Traefik through the `traefik.frontend.rule` labels defined in the *YAML* file. It is time to deploy our stack now! Save the above as `docker-compose.yml` and execute:
+In our example, requests to `/hello/<name>` will be handled by the `hello` service and requests to `/ping` will be served by tasks of the `ping` service. This is configured for Traefik through the `traefik.frontend.rule` labels defined in the *YAML* file.
+
+It is time to deploy our stack now! Save the above as `stack.yml` and execute:
 
 ```shell
 $ docker stack deploy demo -c stack.yml
@@ -160,7 +162,7 @@ The command above has created the services and the new `overlay` network (`demo_
 
 > Services in Swarm stacks are prefixed with the name of the stack. Some configuration will need this (`demo_` in our example).
 
-Let's check the status of the services. Eventually it should look like this:
+Let's check the status of the services! Eventually it should look like this:
 
 ```shell
 ID                  NAME                MODE                REPLICAS            IMAGE               PORTS
@@ -176,7 +178,7 @@ All containers started by the tasks will be attached to this network where they 
 We can also interact with services in the stack using simple `docker` commands, like these:
 
 ```shell
-# Creating a new service, called `sample` and exposing its internal port 8080 as 8001 on the host
+# Create a new service, called `sample`, and expose its internal port 8080 as 8001 on the host
 $ docker service create --name sample --replicas 2 --publish 8001:8080 python:3-alpine python -m http.server 8080
 iui2kz9ibjs0mfp2vlkephvb2
 overall progress: 2 out of 2 tasks
@@ -225,13 +227,13 @@ dez933di9o4m        demo_hello.1                          python:3-alpine     wo
 kclnyekyym5e        demo_hello.2                          python:3-alpine     leader              Running             Running about a minute ago                       
 ```
 
-You can also notice that the Traefik container is always running on the leader node. This is dome by the *constraints* defined on the service and is necessary, so that it has access to the tasks information using the Docker API. It also needs a connection to it, this is why it has the `/var/run/docker.sock` *bind-mounted* to it.
+You can also notice that the Traefik container is always running on the leader node. This is done by the *constraints* defined on the service and it is necessary, so that it has access to the tasks information using the Docker API. It also needs a connection to it, this is why it has the `/var/run/docker.sock` *bind-mounted* to it.
 
 ## Sharing is caring?
 
 If you used `docker-compose`, you know how easy it is to share files or folders from your host with the containers. When running tasks spanning multiple nodes in the Swarm cluster, things could get a *little bit* trickier.
 
-Let's get our *YAML* file a bit cleaner by extracting the inline Python code into its own file and mounting it back to the services. You can find it in my [GitHub repo](https://github.com/rycus86/blog-content/tree/master/tutorials/006_Home_lab_part_3) but it's pretty much the same what we had inlined above. We can now change the service configuration to use the `sample-server.py`, like seen below, right? *Well*, not necessarily...
+Let's get our *YAML* file a bit cleaner by extracting the inline Python code into its own file and mounting it back to the services. You can find it in my [GitHub repo](https://github.com/rycus86/blog-content/tree/master/tutorials/006_Home_lab_part_3), but it's pretty much the same what we had inlined above. We can now change the service configuration to use the `sample_http_server.py`, like seen below, right? *Well*, not necessarily...
 
 ```yaml
 ...
@@ -245,17 +247,17 @@ Let's get our *YAML* file a bit cleaner by extracting the inline Python code int
 
 The problem with this is that the `./sample_http_server.py` will be expanded to an absolute path on the leader node. If a task of the service gets scheduled to another node, it will expect the same file to exist at the exact same absolute path on the host. What can we do then?
 
-You could make sure the necessary files or folders exist on all nodes individually. This might work OK if you're only mounting in read-only mode but you'd still need to update the files on the host in multiple locations, which is not cool.
+You could make sure the necessary files or folders exist on all nodes individually. This might work OK if you're only mounting in read-only mode, but you'd still need to update the files on the host in multiple locations, which is *not cool*.
 
-### Mount from shared directory
+### Mount from a shared directory
 
-You could create a shared directory and mount it with NFS as read/write on all nodes under the same path. This way containers running on any of the nodes *should* be able to write data there and read it, even if the task gets rescheduled to another node. I said it *should* work because you can run into file permission issues pretty quickly. You might have different *uids* and *gids* on the individual nodes that might map differently on NFS. This is what seems to work for me, more or less:
+You could create a shared directory and mount it with *NFS* as read/write on all nodes under the same path. This way containers running on any of the nodes *should* be able to write data there and read it, even if the task gets rescheduled to another node. I said it *should* work because you can run into file permission issues pretty quickly. You might have different *uids* and *gids* on the individual nodes that might map differently on *NFS*. This is what seems to work for me, *more or less:*
 
 ```
 /var/shared/folder 	192.168.2.0/24(rw,fsid=0,sync,crossmnt,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
 ```
 
-The unknown users (like ones that only exist inside a container) will be mapped to a known, existing `uid` and `gid`. I'm still having issues with some my services not being able to share these directories from all the nodes but I think it's to do with how my setup has evolved and not necessarily with this method, *YMMV*.
+The unknown users (like ones that only exist inside a container) will be mapped to a known, existing `uid` and `gid`. I'm still having issues with some my services not being able to share these directories from all the nodes, but I think it's to do with how my setup has evolved and not necessarily with this method, *YMMV*.
 
 ```yaml
 ...
@@ -267,11 +269,11 @@ The unknown users (like ones that only exist inside a container) will be mapped 
 ...
 ``` 
 
-The service configuration in the *YAML* would look something like the above. You'll also have to make sure that the shared folder exists on all service, so it means a bit of manual setup when adding a new node to the cluster, which is not awesome.
+The service configuration in the *YAML* would look something like the above. You'll also have to make sure that the shared folder exists on all servers, so it means a bit of manual setup when adding a new node to the cluster, which is not awesome.
 
 ### NFS service mounts
 
-I've recently learned that Docker also supports NFS mounts natively. This is very similar to the option above with one important distinction. You can declare your NFS mount targets on the containers and that means the mount doesn't have to exist on the host. *Note* that the kernel still has to support NFS and the host systems has to have the required libraries installed, `nfs-utils` for example for Debian based systems.
+I've recently learned that Docker also supports *NFS* mounts natively. This is very similar to the option above with one important distinction. You can declare your *NFS* mount targets on the containers and that means, the mount doesn't have to exist on the host. *Note* that the kernel still has to support *NFS* and the hosts have to have the required libraries installed, `nfs-utils` for example for Debian based systems.
 
 ```yaml
 ...
@@ -289,7 +291,7 @@ I've recently learned that Docker also supports NFS mounts natively. This is ver
           nocopy: true
 ...
 volumes:
-  prometheus-data:
+  remote-folder:
     driver: local
     driver_opts:
       type: nfs4
@@ -297,11 +299,11 @@ volumes:
       o: addr=192.168.15.25,rsize=8192,wsize=8192,timeo=14,intr
 ```
 
-Now as long as the target share is available we can start containers using files from there. If the share goes away though, it's bad luck for your services.
+Now, as long as the target share is available, we can start containers using files from there. If the share goes away though, it's *bad luck* for your services.
 
 ### Configs and secrets
 
-Another option worth mentioning for *read-only files* like webserver configuration that you know when the container start and can only be updated if the related service is updated too. Docker service [configs](https://docs.docker.com/engine/swarm/configs/) allow you to save data (text or binary) in the Swarm cluster and mount it in containers as a file.
+Another option worth mentioning for *read-only files*, like webserver configuration, that you know when the containers start and can only be updated if the related service is updated too. Docker service [configs](https://docs.docker.com/engine/swarm/configs/) allow you to save data (text or binary) in the Swarm cluster and mount it in containers as a file.
 
 ```yaml
 ...
@@ -324,12 +326,12 @@ configs:
     external: true
 ```
 
-Service [secrets](https://docs.docker.com/engine/swarm/secrets/) are defined in a similar way (generally just a change from `configs` to `secrets`) but Swarm will also encrypt these. Be aware that both configs and secrets are immutable so you won't be able to update them. You can also not delete them as long as they're in use by at least one service.
+Service [secrets](https://docs.docker.com/engine/swarm/secrets/) are defined in a similar way (generally just a change from `configs` to `secrets`), but Swarm will also encrypt these. Be aware that both configs and secrets are immutable, so you won't be able to update them. You can also *not* delete them as long as they're in use by at least one service.
 
 You can *sort of* update a service config by using a different name for it:
 
 ```shell
-$ echo 'Update Config' | docker config create svc-config-v2 -
+$ echo 'Updated Config' | docker config create svc-config-v2 -
 qym8cxseaek74w8uq4ukq8yqc
 $ docker service update some_service --config-rm svc-config-v1 --config-add svc-config-v2 --detach=false
 some_service
@@ -342,7 +344,7 @@ svc-config-v1
 
 ### Storage drivers
 
-Docker's plugin system allows registering additional volume drivers along with the ones built-in. You can for example bind a volume to an *S3 bucket* or a *NetApp* share. Check out the [documentation](https://docs.docker.com/engine/extend/legacy_plugins/#volume-plugins) to see what's available or search on GitHub for other open-source implementations. Depending on your use-case, you might find people having the same problem where they already solved it in a reusable way.
+Docker's plugin system allows registering additional volume drivers along with the ones built-in. You can, for example, bind a volume to an *S3 bucket* or a *NetApp* share. Check out the [documentation](https://docs.docker.com/engine/extend/legacy_plugins/#volume-plugins) to see what's available, or search on GitHub for other open-source implementations. Depending on your use-case, you might find people having the same problem where they already solved it in a reusable way.
 
 Let's look at a small example for *CIFS* shares, using the [Netshare plugin](https://github.com/ContainX/docker-volume-netshare). We'll grab the binary, start the plugin and start a container using it.
 
@@ -362,9 +364,9 @@ This can easily be adapted for Swarm services as well.
 
 ## Updating stacks
 
-If you're switching from a *Compose* CD workflow to Swarm, the easiest change would be executing `docker stack deploy` instead of `docker-compose up`. Be aware though that this may cause your services to reschedule their tasks on every invocation which might mean container restarts. Make sure you have a sensible [update-config](https://docs.docker.com/compose/compose-file/#update_config) if you go for this. Better yet, make sure you have one in any case!
+If you're switching from a *Compose* CD workflow to Swarm, the easiest change would be executing `docker stack deploy` instead of `docker-compose up`. Be aware though, that this may cause your services to reschedule their tasks on every invocation, which might mean container restarts. Make sure you have a sensible [update-config](https://docs.docker.com/compose/compose-file/#update_config) if you go for this. *Better yet*, make sure you have one in any case!
 
-I've opted to use a webhooks as triggers for updates on my stack. I have a set of [webhook-proxy](https://github.com/rycus86/webhook-proxy) applications running in my Home Lab, one is available externally that validates the requests and posts them to another, internal instance that also have access to the Docker engine through the API. The latter is the instance where the main update logic is implemented.
+I've opted to use webhooks as triggers for updates on my stack. I have a set of [webhook-proxy](https://github.com/rycus86/webhook-proxy) applications running in my Home Lab, one is available externally, that validates the requests and posts them to another, internal instance, that also have access to the Docker engine through the API. The latter is the instance where the main update logic is implemented.
 
 When I update the stack *YAML* or a configuration file in a private [BitBucket](https://bitbucket.org/) repo, it sends a webhook request that will trigger these main steps:
 
@@ -372,7 +374,7 @@ When I update the stack *YAML* or a configuration file in a private [BitBucket](
 2. Restart services using config files that were updated
 3. Docker stack deploy
 
-There are a couple more bits and pieces in the actual pipeline but this is the main logic. Very similar to the `docker-compose` + `cron` way but instead of constantly checking from Git, we just wait for the external service to signal us the change.
+There are a couple more bits and pieces in the actual pipeline but this is the main logic. Very similar to the `docker-compose` + `cron` way, but instead of constantly checking from Git, we just wait for the external service to signal us the change.
 
 I also have a workflow for Docker image updates on [my Docker Hub](https://hub.docker.com/u/rycus86/) account. When a new image is pushed and a webhook is posted, a *webhook-proxy* handler will:
 
