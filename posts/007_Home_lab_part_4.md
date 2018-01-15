@@ -1,4 +1,4 @@
-# Home Lab - Configuring cattle
+# Home Lab - Configuring the cattle
 
 Let me explain the configuration method I use for my services and HTTP endpoints. *Spoiler:* it's Docker and it's automated.
 
@@ -112,11 +112,58 @@ I might end up using something different when I het around to actually do it, bu
 
 I host my services on my home network with a simple internet subscription. My provider doesn't guarantee a fixed IP address, so whenever it changes, I need to tell Cloudflare about the new one. This is pretty simple and a very common problem, therefore there is a tool to do this for me.
 
-[ddclient](TODO) has been around since (TODO year) and it's proven very useful for many people. 
+[ddclient](TODO) has been around since (TODO year) and it's proven very useful for many people. To keep things portable, I run it as a service in a Docker container using my *multi-arch* [image](TODO). All it does is, it wraps the `ddclient` tool, so the parameters are the exact same. It needs a configuration file to describe the provider, access keys and the list of domains. This can easily be templated like this:
 
----
-Nginx
-LetsEncrypt
-Ddclient
-Prometheus
---Cloudflare
+```
+TODO ddclient template
+```
+
+Once I have this file generated, I can use it in my stack. Whenever the configuration changes, I need to restart the container to pick up the changes.
+
+```yaml
+TODO stack.yml with ddclient + docker-pygen + workers
+```
+
+### Monitoring configuration
+
+I use [Prometheus](TODO) to collect metrics from my services and servers. It is a brilliant, pull-based collector (TODO what's the term?) that can scrape target systems and efficiently store the time-series data for their metrics and the changes of those.
+
+> You can read more about Prometheus in the next part of the [series](TODO), that is about monitoring and logging.
+
+The scrape targets are defined in *YAML* file. Prometheus supports [many](TODO) *service discovery* methods to collect the actual endpoints, one of them is `dns_sd_config (TODO)` that can list the IP addresses of services behind a common DNS name. This plays nicely with Swarm networking, that includes an internal DNS resolver for reasons exactly like this.
+
+```shell
+# inside a container within a Swarm stack
+<TODO>
+$ nslookup service
+TODO
+$ nslookup tasks.service
+TODO
+$ for i in $(seq 3); do host service; done
+TODO show the DNSRR
+```
+
+The Prometheus configuration file can be easily templated as well. When it changes, it can be *hot-reloaded* by sending a `HUP` signal to the main process. The template I use scrapes the Docker engine metrics from all the nodes in the cluster, plus all the services that have labels describing their metrics endpoints.
+
+```
+TODO prometheus template
+```
+
+To put it all together, this is how this automation looks like in my stack:
+
+```yaml
+TODO prom + pygen + worker + node-exporter
+```
+
+## What's next?
+
+It feels like, there is always one more thing to automate. Whenever it gets uncomfortable or cumbersome to change some configuration or to set something up, I'm trying to find a way to automate it, so I wouldn't have to bother with it again. (TODO a bit more?)
+
+Once most of our configuration is taken care care of automatically, it's good to know if it does *actually* work. The next post will go over all the monitoring and logging systems I have in my stack.
+
+The [series](https://blog.viktoradam.net/tag/home-lab/) has these parts so far:
+
+1. [Home Lab - Overview](https://blog.viktoradam.net/2018/01/03/home-lab-part1-overview/)
+2. [Home Lab - Setting up for Docker](https://blog.viktoradam.net/2018/01/05/home-lab-part-2-docker-setup/)
+3. [Home Lab - Swarming servers](https://blog.viktoradam.net/2018/01/13/home-lab-part3-swarm-cluster/)
+4. *Home Lab - Configuring the cattle*

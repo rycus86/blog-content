@@ -291,7 +291,7 @@ I've recently learned that Docker also supports *NFS* mounts natively. This is v
           nocopy: true
 ...
 volumes:
-  remote-folder:
+  remote-folder:
     driver: local
     driver_opts:
       type: nfs4
