@@ -4,9 +4,9 @@ Let me explain the configuration method I use for my services and HTTP endpoints
 
 ## So far...
 
-In the previous posts of the [series](TODO) I walked you through how I've set up my home lab with ARMv8 servers and `docker-compose` and how it's changed to Swarm.
+In the previous posts of the [series](https://blog.viktoradam.net/tag/home-lab/) I walked you through how I've set up my home lab with ARMv8 servers and `docker-compose` and how it's changed to Swarm.
 
-While I only had an [Nginx](TODO) and maybe 3 [Flask](TODO) services in the stack, I could have just used some hard-coded configuration (I didn't) to get them to work together. Even for small stacks though, it makes complete sense to let the system describe and configure what it needs to, leaving you with time to spend on more important things instead, like developing your apps and tools, not fiddling with config files all the time.
+While I only had an [Nginx](https://www.nginx.com/) and maybe 3 [Flask](http://flask.pocoo.org/) services in the stack, I could have just used some hard-coded configuration (I didn't) to get them to work together. Even for small stacks though, it makes complete sense to let the system describe and configure what it needs to, leaving you with time to spend on more important things instead, like developing your apps and tools, not fiddling with config files all the time.
 
 ## Templates
 
@@ -14,33 +14,123 @@ OK, so I don't want to deal with configuration files, but I kind of have to, rig
 
 If I do have to write a config file once though then I can just take a bit of extra time and care to create it as a template so I don't have to touch it the next time something changes in the system. If I'm lucky.
 
-There are quite a few templating languages and frameworks around, [Go templates](TODO) seem to be quite popular these days for example. You can even find systems that use templates to auto-generate configuration for you based on current state read from an underlying system, (TODO examples). If you want to go further, there are others that can run actions when the configuration is updated, reloading [HA-Proxy](TODO) for example with [SmartStack](TODO) or (TODO consul). Then there are systems which can tap into your existing services to generate their own configuration periodically or on changes and reload their internal logic or routing, [Traefik](TODO) for example (TODO others?).
+There are quite a few templating languages and frameworks around, [Go templates](https://golang.org/pkg/text/template/) seem to be quite popular these days for example. You can even find systems that use templates to auto-generate configuration for you based on current state read from an underlying system. If you want to go further, there are others that can run actions when the configuration is updated, reloading [HAProxy](http://www.haproxy.org/) for example with [SmartStack](https://medium.com/airbnb-engineering/smartstack-service-discovery-in-the-cloud-4b8a080de619) or [Consule Template](https://www.hashicorp.com/blog/introducing-consul-template.html). Then there are systems which can tap into your existing services to generate their own configuration periodically or on changes and reload their internal logic or routing, [Traefik](https://traefik.io/) for example.
 
-> I sort of like doing things the hard way, so naturally, I wrote my own configuration generator tool: [docker-pygen](TODO).
+> I sort of like doing things the hard way, so naturally, I wrote my own configuration generator tool: [docker-pygen](https://github.com/rycus86/docker-pygen).
 
-It's nothing special really, it was just the most convenient for me at the time. It's written in Python and it's using [Jinja2](TODO) templates which I was already familiar with through [Flask](TODO) and it uses the [Docker API](TODO) through the [docker-py](TODO) SDK to listen for events and read current state. It was heavily inspired by [docker-gen](TODO) from [jwilder](TODO) but I really didn't want to start using Go-templates and it didn't support Swarm.
+It's nothing special really, it was just the most convenient for me at the time. It's written in Python and it's using [Jinja2](http://jinja.pocoo.org/) templates which I was already familiar with through [Flask](http://flask.pocoo.org/) and it uses the [Docker API](https://docs.docker.com/engine/api/latest/) through the [docker-py](https://github.com/docker/docker-py) SDK to listen for events and read current state. It was heavily inspired by [docker-gen](https://github.com/jwilder/docker-gen) from [jwilder](https://github.com/jwilder) but I really didn't want to start using Go-templates and it didn't support Swarm.
 
-With running the [docker-pygen container](TODO) in the stack and giving it access to the Docker daemon, it can listen for select Docker events and evaluate it's template with the Docker service, task, container and node information available as variables to it. If the target file changes, it can also execute an action, like sending a signal to a container or restarting one.
+With running the [docker-pygen container](https://hub.docker.com/r/rycus86/docker-pygen/) in the stack and giving it access to the Docker daemon, it can listen for select Docker events and evaluate it's template with the Docker service, task, container and node information available as variables to it. If the target file changes, it can also execute an action, like sending a signal to a container or restarting one.
 
-Some of the information I need in my templates really are dynamic that change all the time, like IP addresses of the containers for example. Some of it though is static and will always stay the same for a service. For example, the domain its endpoint is exposed on or the internal port number to forward requests to, etc. For these metadata I'm using Docker [service labels](TODO) in the stack *YAML*, so it's all in code and checked into version control.
+Some of the information I need in my templates really are dynamic that change all the time, like IP addresses of the containers for example. Some of it though is static and will always stay the same for a service. For example, the domain its endpoint is exposed on or the internal port number to forward requests to, etc. For these metadata I'm using Docker [service labels](https://docs.docker.com/engine/reference/commandline/service_create/#set-metadata-on-a-service--l-label) in the stack *YAML*, so it's all in code and checked into version control.
 
 ## Reverse proxy config
 
-I've mentioned in previous posts that I'm an Nginx fan, I think it's just awesome. Nginx doesn't do dynamic backends though, in the open-source community version at least, so every time a new container starts or stops, it needs to be updated in the Nginx configuration file and the main (TODO master?) needs to be reloaded. This can be done with sending a `HUP` signal to the process. If you use the [official Nginx library image](TODO) then you can send a reload signal with `docker kill -s HUP <nginx-container>` that will be forwarded to the main process (`pid 1`) in the container.
+I've mentioned in previous posts that I'm an Nginx fan, I think it's just awesome. Nginx doesn't do dynamic backends though, in the open-source community version at least, so every time a new container starts or stops, it needs to be updated in the Nginx configuration file and the master process needs to be reloaded. This can be done with sending a `HUP` signal to the process. If you use the [official Nginx library image](https://hub.docker.com/r/_/nginx/) then you can send a reload signal with `docker kill -s HUP <nginx-container>` that will be forwarded to the main process (`pid 1`) in the container.
 
 You can have a look at a working template in [this GitHub repo](TODO) as an example. Let me explain the main bits here too.
 
-```
+```python
 # included from the root /etc/nginx/nginx.conf as
-# include /etc/nginx/conf.d/default.conf
-TODO nginx config template
+# include /etc/nginx/conf.d/*.conf;
+
+{% for virtual_host, same_host_services in services|groupby('labels.routing-host') %}
+    {% if not virtual_host %} {% continue %} {% endif %}
+
+    {% for context_path, matching_services in same_host_services|groupby('labels.routing-context')
+           if matching_services|map(attribute='labels.routing-port') %}
+           
+        {% set server_name = '%s__%s'|format(virtual_host, context_path)|replace('/', '_') %}
+        
+        
+upstream {{ server_name }} {
+
+            {% for service in matching_services if service.labels['routing-port'] %}
+
+            # service: {{ service.name }}
+            
+                {% for task in service.tasks.with_status('running')
+                    if task.networks.matching('web').first_value.ip_addresses.first_value %}
+                    
+                # {{ task.name }}
+                server {{ task.networks.matching('web').first_value.ip_addresses.first_value }}:{{ service.labels['routing-port'] }};
+                
+                {% endfor %}
+	    {% endfor %}
+	    
+}
+
+    {% else %}
+        {% continue %}
+    {% endfor %}
+    
+    # ... server blocks below ...
+    
+{% endfor %}
 ```
 
-This example generates one [upstream](TODO) per domain + [URI](TODO) prefix and lists the IP addresses of all the running tasks for a service responsible for dealing with requests on these [URLs](TODO). If you're using Docker [health-checks](TODO), and you should, then it will filter out the ones that are running but unhealthy, because of the `.healthy(..)` (TODO) filter in the template.
+This example generates one [upstream](http://nginx.org/en/docs/http/ngx_http_upstream_module.html) per domain + [URI](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier) prefix and lists the IP addresses of all the running tasks for a service responsible for dealing with requests on these [URLs](https://en.wikipedia.org/wiki/URL). If you're using Docker [health-checks](https://docs.docker.com/engine/reference/builder/#healthcheck), and you should, then it will filter out the ones that are running but unhealthy, because of the `.with_status('running')` bit in the template.
 
-```
-... cont
-TODO nginx config for the server+location
+```python
+# ... continued from above
+
+server {
+    
+    server_name {{ virtual_host }};
+    listen 443 ssl http2;
+    
+	ssl_certificate /etc/letsencrypt/live/{{ virtual_host }}/fullchain.pem;
+	ssl_certificate_key /etc/letsencrypt/live/{{ virtual_host }}/privkey.pem;
+	
+	gzip_types text/plain text/css text/xml application/xml application/xml+rss
+	           text/javascript application/javascript application/x-javascript application/json
+	           image/svg+xml font/otf font/ttf font/woff font/woff2;
+	
+	proxy_buffering off;
+	
+	error_log /proc/self/fd/2;
+	access_log /proc/self/fd/1 access_log_format;
+
+	{% for context_path, matching_services in same_host_services|groupby('labels.routing-context')
+	       if matching_services|map(attribute='labels.routing-port') %}
+	       
+	    {% set first_service = matching_services|first %}
+	    {% set internal_context_path = first_service.labels['routing-internal-context']|default('', true) %}
+        {% set server_name = '%s__%s'|format(virtual_host, context_path)|replace('/', '_') %}
+        {% set max_body_size = first_service.labels['routing-max-body']|default('', true) %}
+        
+	location {{ context_path }}/ {
+	
+	    {% if first_service.labels['routing-auth'] %}
+	        {% set realm = first_service.labels['routing-auth-realm']|default(first_service.name, true) %}
+	        auth_basic              "{{ realm }}";
+            auth_basic_user_file    {{ first_service.labels['routing-auth'] }};
+	    {% endif %}
+
+	    {% if first_service.labels['routing-on-https'] %}
+        proxy_pass https://{{ server_name }}{{ internal_context_path }}/;
+        {% else %}
+        proxy_pass http://{{ server_name }}{{ internal_context_path }}/;
+        {% endif %}
+        
+		proxy_set_header Host $http_host;
+		proxy_set_header X-Real-IP $remote_addr;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+		
+		# HTTP 1.1 support
+		proxy_http_version 1.1;
+		proxy_set_header Connection "";
+		
+		{% if max_body_size != '' %}
+		client_max_body_size {{ max_body_size }};
+		{% endif %}
+		
+		add_header Vary Origin;
+	}
+	
+    {% endfor %}
+}
 ```
 
 Here we're just mapping the `upstreams` to domains and `locations`. I use common settings for everything that makes sense for *my* systems and allow overriding some from labels, for example max upload size or basic authentication.
@@ -50,61 +140,113 @@ Notice that the configuration doesn't refer to any of the services or tasks expl
 The *PyGen* service is using a similar configuration to this:
 
 ```yaml
-TODO pygen + worker
+services:
+  
+  nginx:
+    image: nginx:1.13.6
+    # ...
+
+  nginx-pygen:
+    image: rycus86/docker-pygen
+    command: >
+      --template /etc/docker-pygen/templates/nginx.tmpl
+      --target /etc/nginx/conf.d/default.conf
+      --signal nginx HUP
+      --interval 3 10
+      --swarm-manager
+      --workers tasks.web_nginx-pygen-worker
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+    volumes:
+      - /mnt/shared/nginx-config:/etc/nginx/conf.d
+      - /mnt/shared/compose/nginx-pygen.tmpl:/etc/docker-pygen/templates/nginx.tmpl:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  nginx-pygen-worker:
+    image: rycus86/docker-pygen:worker
+    command: --manager web_nginx-pygen
+    read_only: true
+    deploy:
+      mode: global
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      
+  # ...
 ```
 
-I use a template file that is also checked into version control and I get it to signal the `nginx` service to reload the configuration when something changes. The `--interval` argument allows for batching the signal actions so that even if the state changes 20 times in 1 second, we'll only reload the Nginx configuration once.
+I use a template file that is also checked into version control and I get it to signal the `nginx` service to reload the configuration when something changes. The `--interval` argument allows for batching the signal actions so that even if the state changes 200 times in 10 seconds, we'll only reload the Nginx configuration once.
 
-The [worker image](TODO) shares the codebase with the main tool but it doesn't generate templates. It's purpose is to listen for Docker events on __all nodes__ in the Swarm cluster and forward them to the manager instance. They can also execute actions, received from the manager, that are only available to target containers running on the same node. Restarts for example can be executed on the Swarm service level with `docker service update <service> --force` but signals can only be sent to individual containers which are not necessarily running on the manager's node.
+The [worker image](https://hub.docker.com/r/rycus86/docker-pygen/tags/) shares the codebase with the main tool but it doesn't generate templates. It's purpose is to listen for Docker events on __all nodes__ in the Swarm cluster and forward them to the manager instance. They can also execute actions, received from the manager, that are only available to target containers running on the same node. Restarts for example can be executed on the Swarm service level with `docker service update <service> --force` but signals can only be sent to individual containers which are not necessarily running on the manager's node.
 
 This is why the `worker` is a `global` service that will have an instance running in every node in he cluster. The manager instance has to run on a Swarm manager node so it can access the Swarm APIs, which are not available to the worker nodes.
 
 ```shell
 $ docker service ls
-TODO failing output from worker
+Error response from daemon: This node is not a swarm manager. Worker nodes can't be used to view or modify cluster state. Please run this command on a manager node or promote the current node to a manager.
 ```
 
 ## SSL and certificates
 
 I want my services to only expose secure endpoints to the internet. For this reason, all of them are HTTPS enabled and HTTP requests are simply redirected to the HTTPS variant.
 
-To get SSL certificates, I use [certbot](TODO) from the awesome people of [Let's Encrypt](TODO).Their missions is (TODO), which is very noble, and for this reason, they provide __free__ certificates that are valid for 3 months. Before they expire you can easily renew them using *certbot*. This is how I do it.
+To get SSL certificates, I use [certbot](https://certbot.eff.org/) from the awesome people of [Let's Encrypt](https://letsencrypt.org/). Their missions is to secure the internet, which is very noble, and for this reason, they provide __free__ certificates that are valid for 3 months. Before they expire you can easily renew them using *certbot*. This is how I do it.
 
-I have a Debian based (TODO?) Docker image that has the `certbot` tool installed. Once every 12 hours, it checks all my subdomains to see if their certificate is due for a renewal. It is done as a simple, parameterized command executed in the container, not wrapped in another tool (yet). The main process is basically an infinite loop with `sleep` and it has signal support to start the renewal immediately when I want it to pick up a new domain quickly. Not very fancy, I know, but it gets the job done.
+I have an []Alpine Linux](https://alpinelinux.org/) based Docker image that has the `certbot` tool installed. Once every 12 hours, it checks all my subdomains to see if their certificate is due for a renewal. It is done as a simple, parameterized command executed in the container, not wrapped in another tool (yet). The main process is basically an infinite loop with `sleep` and it has signal support to start the renewal immediately when I want it to pick up a new domain quickly. Not very fancy, I know, but it gets the job done.
 
-The actual renewal process is done by serving up a static file over HTTP on the new domain. This is really the only area that is accessible on port 80. The request will come in as `http://your.domain.com/.well-known/acme/ TODO` and the content it expects comes from certbot.
+The actual renewal process is done by serving up a static file over HTTP on the new domain. This is really the only area that is accessible on port 80. The request will come in as `http://your.domain.com/.well-known/acme-challenge` and the content it expects comes from certbot.
 
-> There other ways to verify that you own a domain which might be simpler for your use-case. Check out the [documentation](TODO) to see those.
+> There other ways to verify that you own a domain which might be simpler for your use-case. Check out the [documentation](https://certbot.eff.org/docs/intro.html#how-to-run-the-client) to see those.
 
-Assuming the domain is already set up and is pointing to your *origin* server, this process should be fairly straightforward. `certbot` allows you to define hooks for the setup and cleanup steps (TODO others?), for me, these look like this:
+Assuming the domain is already set up and is pointing to your *origin* server, this process should be fairly straightforward. `certbot` allows you to define hooks for the setup and cleanup steps, for me, these look like this:
 
+```bash
+# setup script:
+echo "${CERTBOT_VALIDATION}" > /var/www/challenge/${CERTBOT_TOKEN}
+
+# cleanup script:
+rm -rf /var/www/challenge/*
 ```
-TODO setup and cleanup
-```
 
-The `auth-hook.sh (TODO)` takes the configuration parameters (TODO) and saves them in a location where Nginx can access them. The `cleanup.sh (TODO)` is basically just removing these. The actual `cerbot` invocation is in a *Bash* script, generated by *PyGen*.
+The `certbot-authenticator` script takes the validation token parameters and saves them in a location where Nginx can access them. The `/usr/bin/certbot-cleanup` script is basically just removing these. The actual `cerbot` invocation is in a *Bash* script, generated by *PyGen*.
 
-```
-TODO template
+```python
+{% for ssl_domain, matching in services|groupby('labels.routing-host') if ssl_domain %}
+    echo 'Checking certificate renewal for {{ ssl_domain }} ...'
+    
+    certbot certonly -n -d {{ ssl_domain }} --keep --manual \
+        --manual-auth-hook /usr/bin/certbot-authenticator \
+        --manual-cleanup-hook /usr/bin/certbot-cleanup \
+        --manual-public-ip-logging-ok \
+        --email {{ services.matching('certbot-helper').first.labels.letsencrypt_email }} \
+        --agree-tos
+{% endfor %}
 ```
 
 The email address I've registered with Let's Encrypt is defined in a Docker service label. The list of domain names also comes from labels, which are attached to the services that they belong to. When I want to set up a new one using a new subdomain, I just need to define it in the stack *YAML* with the appropriate labels and the *rest is magic*!
 
-The last piece of the puzzle is in the Nginx configuration. The `location` blocks contain lines like these:
+The last piece of the puzzle is in the Nginx configuration. The `server` blocks contain lines like these:
 
 ```
-TODO nginx SSL config block
+server {
+  ...
+  ssl_certificate /etc/letsencrypt/live/{{ virtual_host }}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/{{ virtual_host }}/privkey.pem;
+  ...
+}
 ```
 
 To be honest, I *still have a few manual steps* to do in this workflow, one of them is to register the new subdomain on my DNS provider. This is how I'm planning to automate it *soon*.
 
 ## Domain registration
 
-I've originally bought `viktoradam.net` from [Namecheap](TODO). After a while, I've found myself in need of a [CDN](TODO), so I signed up for [Cloudflare](TODO) and transferred the DNS setup there. Every time I add a new subdomain, it needs to be registered on their system.
+I've originally bought `viktoradam.net` from [Namecheap](https://www.namecheap.com/). After a while, I've found myself in need of a [CDN](https://en.wikipedia.org/wiki/Content_delivery_network), so I signed up for [Cloudflare](https://www.cloudflare.com/) and transferred the DNS setup there. Every time I add a new subdomain, it needs to be registered on their system.
 
-Cloudflare has pretty nice [API](TODO) and even a ready-to-use [Python SDK](TODO) for it. My first option is to have a service running in my stack that picks up new domain names from the other services' labels and registers them using the API if it's missing. This would be very similar to the *certbot* workflow. I *might* run into some timing issues though as a new DNS entry needs a couple of seconds or minutes to come alive, so it might not be ready in time for the Let's Encrypt domain validation request.
+Cloudflare has pretty nice [API](https://api.cloudflare.com/) and even a ready-to-use [Python SDK](https://github.com/cloudflare/python-cloudflare) for it. My first option is to have a service running in my stack that picks up new domain names from the other services' labels and registers them using the API if it's missing. This would be very similar to the *certbot* workflow. I *might* run into some timing issues though as a new DNS entry needs a couple of seconds or minutes to come alive, so it might not be ready in time for the Let's Encrypt domain validation request.
 
-My second option is to reduce how much I have to do manually. I'm using a free [Slack](TODO) account with some automation already. Slack supports [chatbots](TODO) and there are even [Python modules](TODO) for them that look promising. I could write a bot, to which I could tell about a new subdomain I want registered, and it would do it for me. *Less clicking around!*
+My second option is to reduce how much I have to do manually. I'm using a free [Slack](https://slack.com/) account with some automation already. Slack supports [chatbots](https://api.slack.com/bot-users) and there are even [Python modules](https://github.com/lins05/slackbot) for them that look promising. I could write a bot, to which I could tell about a new subdomain I want registered, and it would do it for me. *Less clicking around!*
 
 I might end up using something different when I het around to actually do it, but right now, these two options seem viable to me.
 
@@ -112,54 +254,224 @@ I might end up using something different when I het around to actually do it, bu
 
 I host my services on my home network with a simple internet subscription. My provider doesn't guarantee a fixed IP address, so whenever it changes, I need to tell Cloudflare about the new one. This is pretty simple and a very common problem, therefore there is a tool to do this for me.
 
-[ddclient](TODO) has been around since (TODO year) and it's proven very useful for many people. To keep things portable, I run it as a service in a Docker container using my *multi-arch* [image](TODO). All it does is, it wraps the `ddclient` tool, so the parameters are the exact same. It needs a configuration file to describe the provider, access keys and the list of domains. This can easily be templated like this:
+[ddclient](https://sourceforge.net/p/ddclient/wiki/Home/) has been around since 2006 and it's proven very useful for many people. To keep things portable, I run it as a service in a Docker container using my *multi-arch* [image](https://hub.docker.com/r/rycus86/ddclient/). All it does is, it wraps the `ddclient` tool, so the parameters are the exact same. It needs a configuration file to describe the provider, access keys and the list of domains. This can easily be templated like this:
 
 ```
-TODO ddclient template
+protocol=cloudflare
+use=web, web=dynamicdns.park-your-domain.com/getip
+server=www.cloudflare.com
+ssl=yes
+login={{ services.matching('certbot-helper').first.labels.ddclient_email }}
+password='{{ services.matching('certbot-helper').first.labels.ddclient_password }}'
+zone=viktoradam.net
+{% for ssl_domain, matching in services|groupby('labels.routing-host') if ssl_domain %} {% if loop.index > 1 %} , {% endif %} {{ ssl_domain }} {% endfor %}
 ```
 
 Once I have this file generated, I can use it in my stack. Whenever the configuration changes, I need to restart the container to pick up the changes.
 
 ```yaml
-TODO stack.yml with ddclient + docker-pygen + workers
+version: '3.4'
+services:
+
+  ddclient:
+    image: rycus86/ddclient
+    command: --daemon=300 --ssl --debug --file /var/config/ddclient/ddclient.conf
+    deploy:
+      replicas: 1
+    volumes:
+      - ddclient-config:/var/config/ddclient:ro
+
+  ddclient-pygen:
+    image: rycus86/docker-pygen
+    command: >
+      --template /var/config/ddclient/ddclient.tmpl
+      --target /var/config/ddclient/ddclient.conf
+      --restart ddclient
+      --interval 3 10
+      --swarm-manager
+      --workers tasks.stack_ddclient-pygen-worker
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+    volumes:
+      - ddclient-config:/var/config/ddclient
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  ddclient-pygen-worker:
+    image: rycus86/docker-pygen:worker
+    command: --manager stack_ddclient-pygen
+    read_only: true
+    deploy:
+      mode: global
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+        
+volumes:
+  ddclient-config:
+    driver: local
+    driver_opts:
+      type: nfs
+      device: :/mnt/shared/ddclient
+      o: addr=192.168.15.25,rsize=8192,wsize=8192,timeo=15,hard,intr
 ```
 
 ### Monitoring configuration
 
-I use [Prometheus](TODO) to collect metrics from my services and servers. It is a brilliant, pull-based collector (TODO what's the term?) that can scrape target systems and efficiently store the time-series data for their metrics and the changes of those.
+I use [Prometheus](https://prometheus.io/) to collect metrics from my services and servers. It is a brilliant, pull-based collector that can scrape target systems and efficiently store the time-series data for their metrics and the changes of those.
 
-> You can read more about Prometheus in the next part of the [series](TODO), that is about monitoring and logging.
+> You can read more about Prometheus in the next part of the [series](https://blog.viktoradam.net/tag/home-lab/), that is about monitoring and logging.
 
-The scrape targets are defined in *YAML* file. Prometheus supports [many](TODO) *service discovery* methods to collect the actual endpoints, one of them is `dns_sd_config (TODO)` that can list the IP addresses of services behind a common DNS name. This plays nicely with Swarm networking, that includes an internal DNS resolver for reasons exactly like this.
+The scrape targets are defined in *YAML* file. Prometheus supports [many](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#<scrape_config>) *service discovery* methods to collect the actual endpoints, one of them is `dns_sd_config` that can list the IP addresses of services behind a common DNS name. This plays nicely with Swarm networking, that includes an internal DNS resolver for reasons exactly like this.
 
 ```shell
 # inside a container within a Swarm stack
-<TODO>
 $ nslookup service
-TODO
+
+Name:      service
+Address 1: 10.0.0.2
+
 $ nslookup tasks.service
-TODO
-$ for i in $(seq 3); do host service; done
-TODO show the DNSRR
+
+Name:      tasks.service
+Address 1: 10.0.0.7 service.5.d646d2cgpuplwezam678s2oe4.snet
+Address 2: 10.0.0.3 service.1.mpr253lbth3ux58flm3zo7w7e.snet
+Address 3: 10.0.0.6 bceffa7c3a40.snet
+Address 4: 10.0.0.4 2c131e102fd6
+Address 5: 10.0.0.5 service.3.p3lvxp18azni2z979l4oslxe2.snet
 ```
 
 The Prometheus configuration file can be easily templated as well. When it changes, it can be *hot-reloaded* by sending a `HUP` signal to the main process. The template I use scrapes the Docker engine metrics from all the nodes in the cluster, plus all the services that have labels describing their metrics endpoints.
 
-```
-TODO prometheus template
+```yaml
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+  external_labels:
+      monitor: 'my-stack'
+
+rule_files:
+
+scrape_configs:
+  - job_name: 'prometheus'
+
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'docker'
+    
+    static_configs:
+      - targets:
+        {% for node in nodes %} 
+        - '{{ node.address }}:9323'
+        {% endfor %}
+
+  {% for job_name, services in services|groupby('labels.prometheus-job') %}
+      {% if not job_name %} {% continue %} {% endif %}
+      {% set service = services|first %}
+      {% set port = service.labels['prometheus-port'] %}
+      {% if not port %} {% continue %} {% endif %}
+
+  - job_name: '{{ job_name }}'
+
+    dns_sd_configs:
+      - names: ['tasks.{{ service.name }}']
+        port: {{ port }}
+        type: A
+        refresh_interval: 5s
+  {% endfor %}
 ```
 
 To put it all together, this is how this automation looks like in my stack:
 
 ```yaml
-TODO prom + pygen + worker + node-exporter
+services:
+
+  ...
+  
+  prometheus:
+    image: rycus86/prometheus:2.1.0
+    deploy:
+      replicas: 1
+    ports:
+      - "9090:9090"
+    volumes:
+      - type: volume
+        source: prometheus-config
+        target: /etc/prometheus
+        read_only: true
+        volume:
+          nocopy: true
+      - prometheus-data:/prometheus:nocopy
+
+  prometheus-pygen:
+    image: rycus86/docker-pygen
+    command: >
+      --template /etc/docker-pygen/templates/prometheus.tmpl
+      --target /etc/prometheus/prometheus.yml
+      --signal prometheus HUP
+      --interval 10 30
+      --swarm-manager
+      --workers tasks.stack_prometheus-pygen-worker
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - prometheus-job=pygen-manager-prometheus
+        - prometheus-port=9413
+    volumes:
+      - prometheus-config:/etc/prometheus:nocopy
+      - /mnt/shared/prometheus-pygen.tmpl:/etc/docker-pygen/templates/prometheus.tmpl:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  prometheus-pygen-worker:
+    image: rycus86/docker-pygen:worker
+    command: --manager stack_prometheus-pygen
+    read_only: true
+    deploy:
+      mode: global
+      labels:
+        - prometheus-job=pygen-worker-prometheus
+        - prometheus-port=9414
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  prometheus-node-exporter:
+    image: rycus86/prometheus-node-exporter:0.15.1
+    deploy:
+      mode: global
+      labels:
+        - prometheus-job=node-exporter
+        - prometheus-port=9100
+    pid: host
+  
+  ...
+
+volumes:
+  prometheus-config:
+    driver: local
+    driver_opts:
+      type: nfs4
+      device: :/prometheus-config
+      o: addr=192.168.15.25,rsize=8192,wsize=8192,timeo=14,intr
+
+  prometheus-data:
+    driver: local
+    driver_opts:
+      type: nfs4
+      device: :/prometheus-data
+      o: addr=192.168.15.25,rsize=8192,wsize=8192,timeo=14,intr
 ```
 
 ## What's next?
 
 It feels like, there is always one more thing to automate. Whenever it gets uncomfortable or cumbersome to change some configuration or to set something up, I'm trying to find a way to automate it, so I wouldn't have to bother with it again. (TODO a bit more?)
 
-Once most of our configuration is taken care care of automatically, it's good to know if it does *actually* work. The next post will go over all the monitoring and logging systems I have in my stack.
+Once most of our configuration is taken care of automatically, it's good to know if it does *actually* work. The next post will go over all the monitoring and logging systems I have in my stack.
 
 The [series](https://blog.viktoradam.net/tag/home-lab/) has these parts so far:
 

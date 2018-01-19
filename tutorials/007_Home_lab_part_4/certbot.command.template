@@ -1,0 +1,10 @@
+{% for ssl_domain, matching in services|groupby('labels.routing-host') if ssl_domain %}
+    echo 'Checking certificate renewal for {{ ssl_domain }} ...'
+
+    certbot certonly -n -d {{ ssl_domain }} --keep --manual \
+        --manual-auth-hook /usr/bin/certbot-authenticator \
+        --manual-cleanup-hook /usr/bin/certbot-cleanup \
+        --manual-public-ip-logging-ok \
+        --email {{ services.matching('certbot-helper').first.labels.letsencrypt_email }} \
+        --agree-tos
+{% endfor %}
