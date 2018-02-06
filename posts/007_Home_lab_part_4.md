@@ -479,3 +479,4 @@ The [series](https://blog.viktoradam.net/tag/home-lab/) has these parts so far:
 2. [Home Lab - Setting up for Docker](https://blog.viktoradam.net/2018/01/05/home-lab-part-2-docker-setup/)
 3. [Home Lab - Swarming servers](https://blog.viktoradam.net/2018/01/13/home-lab-part3-swarm-cluster/)
 4. *Home Lab - Configuring the cattle*
+5. [Home Lab - Monitoring madness](https://blog.viktoradam.net/2018/02/06/home-lab-part5-monitoring-madness/)
