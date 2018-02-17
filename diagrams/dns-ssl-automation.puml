@@ -1,0 +1,39 @@
+@startuml
+
+participant "git push" as git_push #lightgreen
+participant "Webhook\nprocessor" as webhooks #orange
+participant "Swarm stack" as stack #lightgrey
+participant "Nginx" as nginx #orange
+participant "DNS & SSL\nautomation" as automation #orange
+participant "certbot" as certbot #lightgreen
+participant "Cloudflare" as cloudflare #lightblue
+participant "Slack" as slack #lightblue
+participant "api.ipify.org" as ipify #lightblue
+participant "Let's Encrypt" as lets_encrypt #lightblue
+
+automation -> stack: Listen for events
+git_push -> webhooks : Notify
+webhooks -> stack : Deploy
+stack -> stack : Start new\nservices
+stack --> automation : Start service event
+stack -> nginx : Regenerate\nconfig
+stack -> nginx : Reload\nconfig <i>(fails)</i>
+automation -> stack : Get the list of subdomains\nfrom Docker service labels
+automation -> ipify : Get public IP address
+automation -> cloudflare : Check DNS record
+automation --> cloudflare : Create or \nUpdate DNS record
+automation --> slack : Send message about\nthe DNS update
+automation -> certbot : Run <i>(subprocess)</i>
+certbot -> cloudflare : Set up\nTXT record
+certbot -> lets_encrypt : Ask for <i>DNS-01</i> challenge
+lets_encrypt -> cloudflare : Verify TXT record
+lets_encrypt --> certbot : Provide SSL certificate
+certbot -> cloudflare : Delete\nTXT record
+certbot --> automation : Finish subprocess
+automation --> stack : Signal containers\nusing a new <b>one-off</b> service
+automation --> automation : Run new\n<i>global</i> service
+automation -> nginx : Send <i>HUP</i> signal
+automation --> slack : Send message about\nthe SSL update
+automation --> automation : Repeat workflow\non a schedule
+
+@enduml
