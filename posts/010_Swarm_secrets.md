@@ -6,7 +6,7 @@ A recent Docker update came with a small but important change for service secret
 
 ## Updating secrets the hard way
 
-Docker Swarm [secrets](TODO) (and [configs](TODO)) are immutable, which means, once created, their content cannot be changed. If you want to update the data they hold, you need to create them under a new name, and update the services using them to forget about the old secret, and reference the new one instead. Let's look at an example of how we could do it from the command line, without stacks first.
+Docker Swarm [secrets](https://docs.docker.com/engine/swarm/secrets/) (and [configs](https://docs.docker.com/engine/swarm/configs/)) are immutable, which means, once created, their content cannot be changed. If you want to update the data they hold, you need to create them under a new name, and update the services using them to forget about the old secret, and reference the new one instead. Let's look at an example of how we could do it from the command line, without stacks first.
 
 ```shell
 $ cat nginx.conf | docker secret create nginx-config-v1 -
@@ -157,7 +157,7 @@ nginx-config-v2
 
 ## Secrets in stacks
 
-Let's look at a *less interactive* example for declaring our secret and the service that uses it. The sample above would roughly translate to this Composefile:
+Let's look at a *less interactive* example for declaring our secret and the service that uses it. The sample above would roughly translate to this [Composefile](https://docs.docker.com/compose/compose-file/):
 
 ```yaml
 version: '3.4'
@@ -310,9 +310,9 @@ What *can* we do, then?
 
 ## Secret names to the rescue
 
-Thankfully for us, [version 3.5](TODO) of the Composefile schema has added the ability to define a [name for a secret](TODO) (or [config](TODO)) that is different from its key in the *YAML* file. What is even better, is that this name also supports variable substitutions! *Yay!* Using a specific name for the secret will get Docker to create it with that exact name, without prefixing it with the stack namespace or otherwise modified. Going back to the original Composefile, we only need to update the version to `3.5`, and define a name for the secret.
+Thankfully for us, [version 3.5](https://docs.docker.com/compose/compose-file/compose-versioning/#version-35) of the Composefile schema has added the ability to define a [name for a secret](https://docs.docker.com/compose/compose-file/#secrets-configuration-reference) (or [config](https://docs.docker.com/compose/compose-file/#configs-configuration-reference)), that is different from its key in the *YAML* file. What is even better, is that this name also supports variable substitutions! *Yay!* Using a specific name for the secret will get Docker to create it with that exact name, without prefixing it with the stack namespace, or otherwise modified. Going back to the original Composefile, we only need to update the version to `3.5`, and define a name for the secret.
 
-> You'll also have to be on Docker version `17.12.0` or higher. (TODO)
+> You'll also have to be on Docker version `17.12.0` or higher.
 
 ```yaml
 version: '3.5'
@@ -335,20 +335,72 @@ Let's try deploying this stack again, and declare the configuration version as `
 
 ```shell
 $ CONF_VERSION=3 docker stack deploy -c stack.yml sample
-TODO output
+Creating secret nginx-config-v3
+Updating service sample_server (id: lvgug0p3fjgwu9elr9g947ecf)
 $ docker secret ls
-TODO secrets
+ID                          NAME                DRIVER              CREATED             UPDATED
+v5iiguro7f868daznnesf02s8   nginx-config-v3                         40 seconds ago      40 seconds ago
 $ docker service inspect sample_server
-TODO inspect
+[
+    {
+        "ID": "lvgug0p3fjgwu9elr9g947ecf",
+        "Version": {
+            "Index": 660
+        },
+        "CreatedAt": "2018-02-28T20:16:46.444153797Z",
+        "UpdatedAt": "2018-02-28T20:22:18.535445873Z",
+        "Spec": {
+            "Name": "sample_server",
+            "Labels": {
+                "com.docker.stack.image": "nginx:1.13.7",
+                "com.docker.stack.namespace": "sample"
+            },
+            "TaskTemplate": {
+                "ContainerSpec": {
+                    "Image": "nginx:1.13.7@sha256:edc8182581fdaa985a39b3021836aa09a69f9b966d1a0ff2f338be6f2fbfe238",
+                    "Labels": {
+                        "com.docker.stack.namespace": "sample"
+                    },
+                    "Privileges": {
+                        "CredentialSpec": null,
+                        "SELinuxContext": null
+                    },
+                    "StopGracePeriod": 10000000000,
+                    "DNSConfig": {},
+                    "Secrets": [
+                        {
+                            "File": {
+                                "Name": "/etc/nginx/conf.d/default.conf",
+                                "UID": "0",
+                                "GID": "0",
+                                "Mode": 256
+                            },
+                            "SecretID": "v5iiguro7f868daznnesf02s8",
+                            "SecretName": "nginx-config-v3"
+                        }
+                    ],
+                    "Isolation": "default"
+                },
+                ...
+$ echo '# changes' >> nginx.conf
+$ CONF_VERSION=4 docker stack deploy -c stack.yml sample
+Creating secret nginx-config-v4
+Updating service sample_server (id: lvgug0p3fjgwu9elr9g947ecf)
+$ docker secret ls
+ID                          NAME                DRIVER              CREATED             UPDATED
+v5iiguro7f868daznnesf02s8   nginx-config-v3                         2 minutes ago       2 minutes ago
+f9fr4teephu3w7axpbv0yueuv   nginx-config-v4                         19 seconds ago      19 seconds ago
 ```
 
-*Great!* The update worked this time. It's up to us now, how we define the value of the variable, *anything* goes.
+*Great!* The update worked this time. The *key* of the secret in the top-level mapping has to match the reference in the service configuration, but the name can be different. It's up to us now, how we define the value of the variable, *anything* goes.
 
 ```shell
-TODO invalid variable subst example
+$ CONF_VERSION="Not so fast!" docker stack deploy -c stack.yml sample
+Creating secret nginx-config-vNot so fast!
+failed to create secret nginx-config-vNot so fast!: Error response from daemon: rpc error: code = InvalidArgument desc = invalid name, only 64 [a-zA-Z0-9-_.] characters allowed, and the start and end character must be [a-zA-Z0-9]
 ```
 
-OK... within reason.
+*OK... within reason.*
 
 I chose to take the *MD5* checksum of the source file, and use it as a suffix on the secret names. With `bash`, it could go something like this:
 
@@ -360,20 +412,84 @@ $ docker stack deploy -c stack.yml sample
 ...
 ```
 
-I use my [webhook-proxy app](TODO) to execute a series of actions in response to an incoming webhook. One of the webhooks is from GitHub, when I push to a repo that has a stack *YAML*, defining some of the services in my [Home Lab](TODO series). The app is written in Python, and it supports extending the pipelines with custom actions, imported from external Python files. One of the steps *(actions)* is responsible for preparing the environment variables for all the secrets and configs defined in the *YAML* file, before executing the `docker stack deploy` command *(which is [running in a container](TODO link to the pipeline example in the blog-content repo), with just enough installed in it to do so)*. The relevant Python code looks like this below.
+I use my [webhook-proxy app](https://github.com/rycus86/webhook-proxy) to execute a series of actions in response to an incoming webhook. One of the webhooks is from GitHub, when I push to a repo that has a stack *YAML*, defining some of the services in my [Home Lab](https://blog.viktoradam.net/tag/home-lab/). The app is written in Python, and it supports extending the pipelines with custom actions, imported from external Python files. One of the steps *(actions)* is responsible for preparing the environment variables for all the secrets and configs defined in the *YAML* file, before executing the `docker stack deploy` command *(which is [running in a container](https://github.com/rycus86/blog-content/blob/master/tutorials/010_Swarm_secrets/webhook_helper.py#L116), with just enough installed in it to do so)*. The relevant Python code looks like this below.
 
 ```python
-TODO prep secret/config vars snippet
+import os
+import re
+import yaml
+import hashlib
+
+def iter_environment_variables(yaml_file, working_dir):
+    if 'secrets' not in yaml_file:
+        return
+
+    for key, config in yaml_file['secrets'].items():
+        path = config.get('file')
+        if not path:
+            continue
+
+        path = os.path.join(working_dir, path)
+        if os.path.exists(path):
+            with open(path, 'rb') as secret_file:
+                version = hashlib.md5(secret_file.read()).hexdigest()
+
+            variable = os.path.basename(path).upper()
+            variable, _ = re.subn('[^A-Z0-9_]', '_', variable)
+
+            yield variable, version
+            
+if __name__ == '__main__':
+    with open('stack.yml') as stack_yml:
+        parsed = yaml.load(stack_yml.read())
+        
+    for key, value in iter_environment_variables(parsed, '.'):
+        print('%s=%s' % (key, value))
 ```
 
-The code basically parses the *YAML*, iterates through the top-level `secrets` and `config` dictionaries, takes the filename converted into all-uppercase with underscores, which will be the name of the environment variable to be set to the *MD5* hash of the target file. We can then invoke the stack deploy command, passing in these variables.
+The code basically parses the *YAML*, iterates through the top-level `secrets` dictionary, and for each element, takes the filename converted into all-uppercase with underscores, which will be the name of the environment variable to be set to the *MD5* hash of the target file. So, something like this:
+
+```yaml
+version: '3.5'
+services:
+
+  app:
+    image: my/app:latest
+    secrets:
+      - source: app-config
+        target: /var/secrets/app.config
+      - source: app-log-config
+        target: /var/secrets/logging.config
+        
+secrets:
+  app-config:
+    file: ./app.config.txt
+    name: app-config-${APP_CONFIG_TXT}
+  app-log-config:
+    file: ./app.logs.xml
+    name: app-log-config-${APP_LOGS_XML}
+``` 
+
+We can then invoke the stack deploy command, passing in these variables.
 
 ```python
-TODO with subprocess
-TODO with docker.containers.run
+secret_versions = {
+    key: value
+    for key, value in iter_environment_variables(stack_yaml, work_dir)
+}
+# set the variables for a child process
+subprocess.call(['docker', 'stack', 'deploy', '-c', 'stack.yml'], env=secret_versions)
+# or set the variables for a new docker container
+docker.from_env().containers.run(
+    image='deploy-image',
+    command='docker stack deploy -c /var/tmp/stack.yml',
+    environment=secret_versions,
+    volumes=['./stack.yml:/var/tmp/stack.yml'],
+    remove=True)
 ```
 
-This way, the name of the secret should only change, when its content changes, avoiding unnecessary service updates, but *more importantly*, eliminating manual updates to the stack *YAML* files in multiple places.
+This way, the name of the secret should only change, when its content changes, avoiding unnecessary service updates, but *more importantly*, eliminating manual updates to the stack *YAML* files in multiple places. *Hooray!*
 
-Hope this will help you as much as it has helped me! (TODO thanks with a link to the PR?)
+Hope this will help you as much as it has helped me!
 
+*Big thanks to [@ilyasotkov](https://github.com/ilyasotkov) for this awesome [contribution](https://github.com/docker/cli/pull/668)!*
