@@ -14,7 +14,7 @@ Let's have a look at the stacks to see their services and what they do!
 
 ![Web stack](https://github.com/rycus86/home-stack-web/raw/master/stack.png)
 
-The [home-stack-web stack](https://github.com/rycus86/home-stack-web-TODO) is the main entrypoint from external networks. A service, running the [Nginx](http://nginx.org/) [image](TODO) is listening on port 443 for HTTPS connections (TODO drop port 80), and all external HTTPS traffic will go through its instances. This then connects to the other services on an overlay network, called `web`, usually on HTTP.
+The [home-stack-web stack](https://github.com/rycus86/home-stack-web-TODO) is the main entrypoint from external networks. A service, running the [Nginx](http://nginx.org/) [image](TODO) is listening on port 443 for HTTPS connections, and all external HTTPS traffic will go through its instances. This then connects to the other services on an overlay network, called `web`, usually on HTTP.
 
 > Note, that all the other services listen only within the overlay network, they are not (and not need to be) accessible from external networks.
 
@@ -25,6 +25,8 @@ The service uses Swarm configs and secrets for the main Nginx configuration file
 The tasks started from the Nginx service also have appropriate labels for the [domain automation](TODO blog post link) service to find and signal when the SSL certificates used have been renewed *automatically*, using [Let's Encrypt](TODO) as the provider. The certificate files are stored on a shared volume, so it can easily pick them up from there.
 
 All other services in the `web` stack accept HTTP connections, as described above. These services include this [Ghost blog](https://ghost.org/), my [demo site](https://github.com/rycus86/demo-site), plus a few other [Flask apps](TODO blog post link) for REST endpoints. They all include service labels for routing information, `routing-host` for the domain name I want to expose them on, and the `routing-port` label for the internal port Nginx can connect to them. Some of them also use Swarm secrets for various settings, like API keys for external services. Most of them are attached to the `monitoring` overlay network too, so that Prometheus can also connect to them to scrape their metrics. *(see below)*
+
+> TODO link to stack.yml + config
 
 ### Monitoring
 
@@ -38,6 +40,8 @@ All these metrics are then visualized by a [Grafana](https://grafana.com/) insta
 
 The stack also includes a [Portainer](https://portainer.io/) instance to have a quick view of the state of the containers and services. This service does not connect to the `web` network, since I don't want it publicly available, instead it publishes a port on the Swarm *ingress* network. This allows me to access it from local network at home, without exposing it on the internet.
 
+> TODO link to stack.yml + config
+
 ### Logging
 
 ![Logging stack](https://github.com/rycus86/home-stack-logging/raw/master/stack.png)
@@ -50,30 +54,83 @@ The logging-related services themselves, plus a few other *chatty* ones, don't u
 
 All the Elasticsearch and Fluentd configuration files are kept in files [in the GitHub repo](TODO link to ./config), and they are then used as the data for the Swarm configs generated for their services. 
 
+> TODO link to stack.yml + config
+
 ### Webhooks
 
 ![Webhook stack](https://github.com/rycus86/home-stack-webhooks/raw/master/stack.png)
 
 All the updates to all my Swarm stacks are managed by webhooks, processed using my [webhook Proxy](https://github.com/rycus86/webhook-proxy) app. You can find some information on how in a [previous post](https://blog.viktoradam.net/2018/01/13/home-lab-part3-swarm-cluster/), though it's fairly straightforward.
 
-There are two services of the same app. The externally available `receiver` takes the incoming webhooks as HTTP requests through Nginx, validates it, then forwards it to the internal `updater` instance. Only the first one needs to be on the `web` network, so that Nginx can talk to it, the other one is only accessible from the stack's default overlay network.
+There are two services of the same app. The externally available `receiver` takes the incoming webhooks as HTTP requests through Nginx, validates it, then forwards it to the internal `updater` instance. Only the first one needs to be on the `web` network, so that Nginx can talk to it, the other one is only accessible from the stack's default overlay network. This way, the instance that has access to the Docker daemon and sensitive information, like SSH keys for GitHub, is not directly exposed to external networks.
 
-### Other stacks - Docker + DNS + private
+The `receiver` service deals with two types of webhooks. The first one accepts webhooks from Docker Hub, when an image has been pushed there. Most of my images are built on [Travis CI](TODO), the CPU architecture-specific images pushed first, followed by the multi-arch manifest at the end, which is the one I want to process here. After validation, the request is passed to the internal `updater` instance, that pulls the new image, finds matching services running with a previous version of the same image, and updates them with the new one just received.
 
-> TODO link to the 009 post
+The other type of webhook comes from either GitHub or BitBucket from a repository containing one of the stacks. In case of GitHub, the request signature is verified first, using Swarm secrets. If everything looks good, the internal webhook processor will:
 
-## Update workflows
+1. Create the root directory for the stack if it does not exist yet
+2. Pull the repository's content into this directory, and decrypt files if needed
+3. Ensures that all external Swarm networks referenced in the YAML file exist
+4. Executes the `docker stack deploy` command
 
-> TODO update workflow - maybe above at the webhooks?
+The last step will create all the Swarm secrets and configs, and updates (or creates) all the services in the stack.
+
+> TODO link to stack.yml + config
+
+### Other stacks
+
+![Docker stack](https://github.com/rycus86/home-stack-docker/raw/master/stack.png)
+
+I have a few other, smaller stacks in my home lab. One of them houses a private [Docker Registry](https://github.com/docker/distribution), where I keep my images I don't necessarily want in Docker Hub. This service is somewhat special from a routing perspective. It does it's own basic authentication, and it accepts HTTPS connections only on the internal overlay network, coming from Nginx. This minor deviation is handled by the Nginx template, using a boolean flag from the `routing-on-https` service label.
+
+![DNS stack](https://github.com/rycus86/home-stack-dns/raw/master/stack.png)
+
+There is also another small stack, looking after my DNS and SSL maintenance I wrote about in a [previous post](TODO link 009). The service for the [domain-automation](https://github.com/rycus86/domain-automation) app uses quite a few Swarm secrets, mainly for access keys to various external services, like [Slack](TODO) for example. This stack is one where the service defined in it is not connected to the `web` network, as the application doesn't provide an HTTP endpoint *(externally)*. It is connected though to the `monitoring` network, so Prometheus is able scrape its metrics, like it does with services in any other stacks.
+
+> TODO link to stack.yml + config
 
 ## Sensitive configuration
 
-> TODO git-crypt
+I have mentioned secrets a few times. All the files that hold their data live in public GitHub repositories, but encrypted using [git-crypt](TODO). It is super easy to set it up.
+
+```bash
+$ TODO install
+$ git-crypt init
+TODO
+$ cat .gitattributes
+TODO
+$ git-crypt status
+TODO
+```
+
+Once set up, *git-crypt* will transparently encrypt and decrypt files when needed, so a `git diff` for example would work as usual, not comparing the encrypted bytes of different version of a file. When the repository is cloned somewhere else, another machine perhaps, the encrypted files can be unlocked with a simple `git-crypt unlock (TODO?)`. For more information check out the [documentation](TODO).
 
 ## Swarm networks
 
-> TODO about migrating between legacy and new networks
+Docker Swarm puts services in a *single* stack on an automatically generated overlay network. This is great, because the services in it can freely talk to each other, even using the service names as hostnames, thanks to the internal DNS resolver provided. Breaking up my large single stack into multiple, smaller, individual ones did pose a challenge though. Where services could previously access another one in the stack, through the `default` network, now need to be on another shared network. This is where *external* networks come to the rescue!
+
+```yaml
+version: '3.5'
+services:
+  ...
+networks:
+  shared:
+    name: cross-stack
+    external: true
+```
+
+The snippet above tells Docker, that there is an external network, called `cross-stack`, exists already outside of the Swarm stach, and *not managed* by it. Individual services in this stack then can declare, that they need to be on that network as well. We just need to make sure it exists prior to executing the `docker stack deploy` command. This is why my webhook processor pipeline includes a [step](TODO link to code) to create them.
+
+While I was moving the services out of the single stack and into the new, smaller stack, I had updated the original stack to include an external `legacy` network, and added the necessary services, like Nginx and Prometheus, on it. This way, the services in the new stacks had to be placed on this extra network as well temporarily, so that routing from Nginx could still work to their endpoints, for example. Once the migration was completed, I could simply roll out another update to remove the `legacy` network from each stack's YAML file.
 
 ## Final words
 
-> TODO links
+I am hoping that these stacks can now serve as an example to anyone who stumbles upon them in GitHub. If you're interested in learning more about the setup in my home lab, check out the previous posts in the series:
+
+1. [Home Lab - Overview](https://blog.viktoradam.net/2018/01/03/home-lab-part1-overview/)
+2. [Home Lab - Setting up for Docker](https://blog.viktoradam.net/2018/01/05/home-lab-part-2-docker-setup/)
+3. [Home Lab - Swarming servers](https://blog.viktoradam.net/2018/01/13/home-lab-part3-swarm-cluster/)
+4. [Home Lab - Configuring the cattle](https://blog.viktoradam.net/2018/01/20/home-lab-part4-auto-configuration/)
+5. [Home Lab - Monitoring madness](https://blog.viktoradam.net/2018/02/06/home-lab-part5-monitoring-madness/)
+6. *Home Lab - Open sourcing the stacks*
+
