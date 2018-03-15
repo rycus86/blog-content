@@ -403,3 +403,4 @@ All the parts so far:
 3. *Home Lab - Swarming servers*
 4. [Home Lab - Configuring the cattle](https://blog.viktoradam.net/2018/01/20/home-lab-part4-auto-configuration/)
 5. [Home Lab - Monitoring madness](https://blog.viktoradam.net/2018/02/06/home-lab-part5-monitoring-madness/)
+6. [Home Lab - Open sourcing the stacks](https://blog.viktoradam.net/2018/03/15/home-lab-open-sourcing-the-stacks/)

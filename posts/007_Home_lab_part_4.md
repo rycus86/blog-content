@@ -480,3 +480,4 @@ The [series](https://blog.viktoradam.net/tag/home-lab/) has these parts so far:
 3. [Home Lab - Swarming servers](https://blog.viktoradam.net/2018/01/13/home-lab-part3-swarm-cluster/)
 4. *Home Lab - Configuring the cattle*
 5. [Home Lab - Monitoring madness](https://blog.viktoradam.net/2018/02/06/home-lab-part5-monitoring-madness/)
+6. [Home Lab - Open sourcing the stacks](https://blog.viktoradam.net/2018/03/15/home-lab-open-sourcing-the-stacks/)
