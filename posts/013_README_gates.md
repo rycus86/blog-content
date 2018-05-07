@@ -44,7 +44,7 @@ func init() {
 func Parse() *Configuration {
 	flag.Parse()
 
-    return &Configuration{
+	return &Configuration{
 		SharePids:    pids,
 		ShareVolumes: volumes,
 		StreamLogs:   logs,
@@ -211,8 +211,10 @@ func iterProperties(...) {
 
 OK, this was a bit long, but I tried to add some comments at each of the important steps. In the end, we get a copy-paste ready output, if the documentation is missing. The test also allows for changing the output, for example to include some details or comments for each of the properties. If you're interested, you can see it in the project's [README](https://github.com/rycus86/podlike/blob/master/README.md#unsupported-properties).
 
+Having these tests in place, your build will simply fail on your favorite CI system, which runs your builds and checks anyway, so you'll know pretty soon if you missed an important documentation update. To further shorten the feedback loop, you could also set up a Git pre-commit hook, and run these tests there, along with your other lints, so you'd learn about this missing step even before committing the latest changes.
+
 ## Conclusion
 
-These gates might not be as exciting *technically*, than failing on memory leaks automatically, or on drops in code quality or test coverage. I still think they can be a nice aid during development, to help not losing focus of important, but not absolutely necessary changes. Keeping your README up to date should benefit anyone interested in finding out more, or getting help with your project, so it is well worth it.
+These gates might not be as exciting *technically*, than failing on memory leaks automatically, or on drops in code quality or test coverage. I still think they can be a nice aid during development, to help not losing focus of important but not absolutely necessary changes. Keeping your README up to date should benefit anyone interested in finding out more, or getting help with your project, so it is well worth it.
 
 Let me know if you have any comments, observations or thoughts about all this! Thank you!
