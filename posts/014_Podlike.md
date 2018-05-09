@@ -30,9 +30,10 @@ If you have time and resources to look into Kubernetes, learn the concepts, figu
 
 > In my opinion, the barrier of entry for Swarm is much lower, than it is with k8s.
 
-This is not to say it's not worth investing into Kubernetes, it is, definitely. I'm only suggesting, going through the Docker to Compose to Swarm route is more straightforward, than jumping onto Kubernetes. Check out this excellent thread from [Joe Beda](TODO Twitter profile link):
+This is not to say it's not worth investing into Kubernetes, it is, definitely. I'm only suggesting, going through the Docker to Compose to Swarm route is more straightforward, than jumping onto Kubernetes. Check out this excellent thread from [Joe Beda](https://twitter.com/jbeda):
 
-> TODO insert Twitter card
+<blockquote class="twitter-tweet" data-lang="en-gb"><p lang="en" dir="ltr">I made the mistake of reading the comments on HN around Kubernetes and there is a common thread around Kubernetes being too complex.  This is something that I&#39;ve been thinking quite a bit about for quite a long time. /1</p>&mdash; Joe Beda (@jbeda) <a href="https://twitter.com/jbeda/status/993978918196531200?ref_src=twsrc%5Etfw">8 May 2018</a></blockquote>
+<script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 
 Now, that the motivation for this application is introduced, let's talk about what it is *so far*!
 
@@ -53,70 +54,70 @@ services:
   my-app:
     image: rycus86/podlike:0.0.1
     labels:
-	  # our existing application we're going to enrich with other components
+      # our existing application we're going to enrich with other components
       pod.component.server: |
         image: legacy/app:71.16.5
         environment:
           IT_IS_TWELVE_FACTOR_THOUGH=no
-		  HTTP_PORT=3000
-	  # copy the logging configuration for the app
-	  pod.copy.server: >
-	    /etc/conf/logging.conf:/opt/legacy/app/conf/logs.xml
-	  # a caching proxy in front of it
-	  pod.component.cache: |
-	    image: enterprise/cache:7.0.0
-		environment:
-		  - CACHE_HTTP_PORT=443
-		  - CACHE_SSL_ON=true
-	  # copy the cache configuration file in place
-	  pod.copy.cache: |
-	    /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
-		/etc/conf/ssl.cert:/etc/ssl/myapp.cert
-		/etc/conf/ssl.key:/etc/ssl/myapp.key
-	  # TODO make pod.copy. accept a multiline copy config, trimming whitespace
+          HTTP_PORT=3000
+      # copy the logging configuration for the app
+      pod.copy.server: >
+        /etc/conf/logging.conf:/opt/legacy/app/conf/logs.xml
+      # a caching proxy in front of it
+      pod.component.cache: |
+        image: enterprise/cache:7.0.0
+        environment:
+          - CACHE_HTTP_PORT=443
+          - CACHE_SSL_ON=true
+      # copy the cache configuration file in place
+      pod.copy.cache: |
+        /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
+        /etc/conf/ssl.cert:/etc/ssl/myapp.cert
+        /etc/conf/ssl.key:/etc/ssl/myapp.key
+      # TODO make pod.copy. accept a multiline copy config, trimming whitespace
       # an app for nicely formatted health status, based on checks from the legacy app
-	  pod.component.healthz: |
-	    image: enterprise/healthz:1.4.3
-		command: >
-		  check
-		  --http localhost:3000/db_ready=200
-		  --http localhost:3000/config_ok=200
-		  --http localhost:3000/memory_ok=200
-		  --serve-on 8080
-	  # support for service discovery
-	  pod.component.sd: |
-	    image: oss/service-discovery-agent:2.1.0
-		command: >
-		  --server sd.company.local:1234
-		  --name my-app
-		  --health :8080/healthz
-	  # log collector for the files in the shared log folder
-	  pod.component.log-collector:
-	    image: logz/agent:1.3.9
-		command: >
-		  --pattern /var/logs/app/*.log
-		  --forward tcp://logs.company.local:7701
-	# ports published on the service
-	ports:
-	  - 443:443
-	  - 9001:8080
-	# give the service access to the cache config file
+      pod.component.healthz: |
+        image: enterprise/healthz:1.4.3
+        command: >
+          check
+          --http localhost:3000/db_ready=200
+          --http localhost:3000/config_ok=200
+          --http localhost:3000/memory_ok=200
+          --serve-on 8080
+      # support for service discovery
+      pod.component.sd: |
+        image: oss/service-discovery-agent:2.1.0
+        command: >
+          --server sd.company.local:1234
+          --name my-app
+          --health :8080/healthz
+      # log collector for the files in the shared log folder
+      pod.component.log-collector:
+        image: logz/agent:1.3.9
+        command: >
+          --pattern /var/logs/app/*.log
+          --forward tcp://logs.company.local:7701
+    # ports published on the service
+    ports:
+      - 443:443
+      - 9001:8080
+    # give the service access to the cache config file
     configs:
-	  - source: log_conf
-	    target: /etc/conf/logging.conf
-	  - source: cache_conf
-	    target: /etc/conf/cache.conf
-	# give access to some secrets as well
-	secrets:
-	  - source: ssl-cert
-	    target: /etc/conf/ssl.cert
-	  - source: ssl-key
-	    target: /etc/conf/ssl.key
+      - source: log_conf
+        target: /etc/conf/logging.conf
+      - source: cache_conf
+        target: /etc/conf/cache.conf
+    # give access to some secrets as well
+    secrets:
+      - source: ssl-cert
+        target: /etc/conf/ssl.cert
+      - source: ssl-key
+        target: /etc/conf/ssl.key
     volumes:
-	  # the controller needs access to the host's Docker engine
-	  - /var/run/docker.sock:/var/run/docker.sock
+      # the controller needs access to the host's Docker engine
+      - /var/run/docker.sock:/var/run/docker.sock
       # the shared log folder
-	  - logs:/var/logs/app
+      - logs:/var/logs/app
 
 configs:
   # logging configuration for the application
@@ -159,31 +160,31 @@ services:
   my-app:
     image: rycus86/podlike:0.0.1
     labels:
-	  # the Compose file where each service will become a component
+      # the Compose file where each service will become a component
       pod.compose.file: /etc/conf/components.yaml
-	  # copy the logging configuration for the app
-	  pod.copy.server: >
-	    /etc/conf/logging.conf:/opt/legacy/app/conf/logs.xml
-	  # copy the cache configuration file in place
-	  pod.copy.cache: |
-	    /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
-		/etc/conf/ssl.cert:/etc/ssl/myapp.cert
-		/etc/conf/ssl.key:/etc/ssl/myapp.key
-	# ports published on the service
-	ports:
-	  - 443:443
-	  - 9001:8080
+      # copy the logging configuration for the app
+      pod.copy.server: >
+        /etc/conf/logging.conf:/opt/legacy/app/conf/logs.xml
+      # copy the cache configuration file in place
+      pod.copy.cache: |
+        /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
+        /etc/conf/ssl.cert:/etc/ssl/myapp.cert
+        /etc/conf/ssl.key:/etc/ssl/myapp.key
+    # ports published on the service
+    ports:
+      - 443:443
+      - 9001:8080
     configs:
       # the same as in the previous example, plus
-	  - source: compose-file
-	    target: /etc/conf/components.yaml
-	secrets:
+      - source: compose-file
+        target: /etc/conf/components.yaml
+    secrets:
       # the same as in the previous example
     volumes:
-	  # the controller needs access to the host's Docker engine
-	  - /var/run/docker.sock:/var/run/docker.sock
+      # the controller needs access to the host's Docker engine
+      - /var/run/docker.sock:/var/run/docker.sock
       # the shared log folder
-	  - logs:/var/logs/app
+      - logs:/var/logs/app
 
 configs:
   # the same as in the previous example, plus
