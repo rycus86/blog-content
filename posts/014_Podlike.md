@@ -30,11 +30,15 @@ If you have time and resources to look into Kubernetes, learn the concepts, figu
 
 > In my opinion, the barrier of entry for Swarm is much lower, than it is with k8s.
 
+This is not to say it's not worth investing into Kubernetes, it is, definitely. I'm only suggesting, going through the Docker to Compose to Swarm route is more straightforward, than jumping onto Kubernetes. Check out this excellent thread from [Joe Beda](TODO Twitter profile link):
+
+> TODO insert Twitter card
+
 Now, that the motivation for this application is introduced, let's talk about what it is *so far*!
 
-## The Podlike service
+## Introduction
 
-The application itself is written in Go, compiled into a tiny static binary, then packaged as a Docker image, using the `scratch` empty base image. It is intended to be deployed as a Swarm service, although you can run it with Compose or `docker run` too, if you want, for local testing perhaps. Its configuration is driven by the labels on the running container itself, so it lives together with the rest of the stack's description, if you're using stacks.
+The [Podlike](https://github.com/rycus86/podlike) application itself is written in Go, compiled into a tiny static binary, then packaged as a Docker image, using the `scratch` empty base image. It is intended to be deployed as a Swarm service, although you can run it with Compose or `docker run` too, if you want, for local testing perhaps. Its configuration is driven by the labels on the running container itself, so it lives together with the rest of the stack's description, if you're using stacks.
 
 When scheduled onto a node, Swarm will start a container for the service's task, that will have all the configuration you set when you created (or updated) the service, either through `docker service create`, or by defining them in the stack YAML. Let's call this container the __controller__. On startup, it reads its own container labels from the Docker engine, to prepare the configuration for the other containers in the *"pod"*, let's call them __components__.
 
@@ -49,10 +53,180 @@ services:
   my-app:
     image: rycus86/podlike:0.0.1
     labels:
+	  # our existing application we're going to enrich with other components
       pod.component.server: |
         image: legacy/app:71.16.5
         environment:
           IT_IS_TWELVE_FACTOR_THOUGH=no
+		  HTTP_PORT=3000
+	  # copy the logging configuration for the app
+	  pod.copy.server: >
+	    /etc/conf/logging.conf:/opt/legacy/app/conf/logs.xml
+	  # a caching proxy in front of it
+	  pod.component.cache: |
+	    image: enterprise/cache:7.0.0
+		environment:
+		  - CACHE_HTTP_PORT=443
+		  - CACHE_SSL_ON=true
+	  # copy the cache configuration file in place
+	  pod.copy.cache: |
+	    /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
+		/etc/conf/ssl.cert:/etc/ssl/myapp.cert
+		/etc/conf/ssl.key:/etc/ssl/myapp.key
+	  # TODO make pod.copy. accept a multiline copy config, trimming whitespace
+      # an app for nicely formatted health status, based on checks from the legacy app
+	  pod.component.healthz: |
+	    image: enterprise/healthz:1.4.3
+		command: >
+		  check
+		  --http localhost:3000/db_ready=200
+		  --http localhost:3000/config_ok=200
+		  --http localhost:3000/memory_ok=200
+		  --serve-on 8080
+	  # support for service discovery
+	  pod.component.sd: |
+	    image: oss/service-discovery-agent:2.1.0
+		command: >
+		  --server sd.company.local:1234
+		  --name my-app
+		  --health :8080/healthz
+	  # log collector for the files in the shared log folder
+	  pod.component.log-collector:
+	    image: logz/agent:1.3.9
+		command: >
+		  --pattern /var/logs/app/*.log
+		  --forward tcp://logs.company.local:7701
+	# ports published on the service
+	ports:
+	  - 443:443
+	  - 9001:8080
+	# give the service access to the cache config file
+    configs:
+	  - source: log_conf
+	    target: /etc/conf/logging.conf
+	  - source: cache_conf
+	    target: /etc/conf/cache.conf
+	# give access to some secrets as well
+	secrets:
+	  - source: ssl-cert
+	    target: /etc/conf/ssl.cert
+	  - source: ssl-key
+	    target: /etc/conf/ssl.key
+    volumes:
+	  # the controller needs access to the host's Docker engine
+	  - /var/run/docker.sock:/var/run/docker.sock
+      # the shared log folder
+	  - logs:/var/logs/app
 
-> TODO
+configs:
+  # logging configuration for the application
+  log_conf:
+    file: ./logging.xml
+  # the cache config file
+  cache_conf:
+    file: ./cache.conf
+
+secrets:
+  # files for SSL certificates as secrets
+  ssl-cert:
+    file: ./ssl.cert
+  ssl-key:
+    file: ./ssl-key
+
+volumes:
+  # local (per-node) volume for the shared log folder
+  logs:
 ```
+
+Let's take this imaginary stack definition above! The *"pod"* will contain these components:
+
+- `server` for our legacy application
+- `cache` for a caching proxy in front of the app
+- `healthz` for adding a composite health-check endpoint, that aggregates checks based on some legacy endpoints
+- `sd` for a service discovery agent, that registers the app when it is started
+- `log-collector` for forwarding logs read from log files on the local, shared volume, to our *cloud native* log aggregator
+
+All 5 components are configured using the `pod.component.<name>` labels. When started, the controller will create the component containers as `<controller-container.name>.podlike.<name>`, so on Swarm the legacy app's container name should become something like `my-app.1.aBcDe.podlike.server`. The service is given access to a couple of Swarm configs and secrets. These will be available within the controller container, and it will copy them to the components' containers - after created, but before started -, according to the `pod.copy.<component-name>` labels. The service will also get a local `logs` volume on every node the task is scheduled to, and this volume will be available to all the components, think `docker run --volumes-from`.
+
+> By default, volumes are shared with the all the components, and __this includes__ the Docker engine socket! Volume sharing can be disabled with the `-volumes=false` command line flag.
+
+To make the switch over from Compose even easier, you can use a Compose file to describe the components in the service configuration, having the `pod.compose.file` label pointing to a file inside the controller container. You can use the Compose file as-is, the application will ignore any properties it doesn't support, or doesn't make sense for this use case. The example above would look like this, using a file instead of individual labels:
+
+```yaml
+version: '3.5'
+services:
+
+  my-app:
+    image: rycus86/podlike:0.0.1
+    labels:
+	  # the Compose file where each service will become a component
+      pod.compose.file: /etc/conf/components.yaml
+	  # copy the logging configuration for the app
+	  pod.copy.server: >
+	    /etc/conf/logging.conf:/opt/legacy/app/conf/logs.xml
+	  # copy the cache configuration file in place
+	  pod.copy.cache: |
+	    /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
+		/etc/conf/ssl.cert:/etc/ssl/myapp.cert
+		/etc/conf/ssl.key:/etc/ssl/myapp.key
+	# ports published on the service
+	ports:
+	  - 443:443
+	  - 9001:8080
+    configs:
+      # the same as in the previous example, plus
+	  - source: compose-file
+	    target: /etc/conf/components.yaml
+	secrets:
+      # the same as in the previous example
+    volumes:
+	  # the controller needs access to the host's Docker engine
+	  - /var/run/docker.sock:/var/run/docker.sock
+      # the shared log folder
+	  - logs:/var/logs/app
+
+configs:
+  # the same as in the previous example, plus
+  compose-file:
+    file: ./docker-compose.yml
+
+secrets:
+  # the same as in the previous example
+
+volumes:
+  # the same as in the previous example
+```
+
+It hasn't changed much, compared to the first example, we just hid the definition of the 5 components into a file. Note, that we still need to copy the files into the components at startup.
+
+## Design
+
+I didn't really have to think hard about the design for the application, it is *simulating* the Kubernetes pod concept, with some limitations and key differences. Let me try to explain how I *think* a pod is working, with my limited understanding, then compare it with the Podlike implementation.
+
+As far as I can tell, without having run a single pod on k8s, the nodes have an agent (TODO name) running on them, taking tasks scheduled onto them from an API server. For new tasks, Kubernetes starts a [pause container](TODO almighty pause) as the first *"component"* of the pod, then the others - actually defined by the user - are configured to use the *namespaces* of it. Sharing the network namespace means, the individual containers in the pod can access each other's open ports on `localhost`, on the *loopback* interface, so network traffic doesn't have to leave the host. If you share *PIDs*, they can also see each other's running processes, and can also send *UNIX signals* to them. (TODO IPC, cgroups?) Volumes are also configured to the pod as a whole, each container being able to access it, which makes file sharing easy between them. The pod's lifecycle is managed by the agent on the node, and it will take care of stopping the containers as appropriate, plus cleaning up after them. The main process in the `pause` container runs as *PID 1*, and it takes care of reaping the children, if and when they exist, so cleanup should work nicely. (TODO review this whole section, link to k8s docs)
+
+> I'd like to reiterate, that I have __not__ actually used Kubernetes *yet*, so please correct me if I've got any of this wrong - I'm pretty sure I have, some of it.
+
+So, how do we take this idea, this concept into Docker and Swarm services? The needs, I considered for the design, are:
+
+- Ability to schedule multiple containers to the same node *(affinity)*
+- They need to all start and stop together
+- Stop and clean them up all, if one fails
+- Ability to access each other's open network ports
+- Ability to signal each other's processes
+- Ability to share files between each other
+
+These translated to the following implementation needs:
+
+- We need *something* that is managed by Swarm
+- We need to be able to enter the namespaces of this thing with our containers
+- We need this thing to manage the lifecycle of the containers
+- We need it to clean up the whole thing, when needed
+- We need to share volumes across all the components
+
+The only participant, whose lifecycle Swarm manages for us here, is the task for the service you configure, in our case, this becomes the [Podlike container](https://hub.docker.com/r/rycus86/podlike/). It will have all the resources and settings you defined in the stack YAML, or as arguments to the `docker service create` command. From this point onwards, this application is responsible for *proxying* lifecycle events and actions to the components it starts.
+
+First, it figures out its own container ID by looking at the `/proc/self/cgroup` file's contents. It then asks the Docker engine for the details about itself, similar to `docker inspect <container-id>`, but using the API connection to the daemon. Based on the labels it can see, it builds up the list of component definitions for the configuration. The container talks to the local daemon here, which may or may not be a manager in the Swarm cluster, and this is the reason why only container labels are visible and therefore supported, but not service labels.
+
+It then starts the individual components one-by-one (TODO can be done in parallel?), in random order - Compose-style `depends_on` is not supported at the moment, and not sure there is a huge need for it. For each of them, it creates a container, but doesn't start it yet. The created container is inspected for its details, to be used later. If there were any file copy labels defined, the corresponding files are copied __from the controller__ container to the component's container, still while it's only in created, but not started state. (TODO cont: hc, start, logs)
+
