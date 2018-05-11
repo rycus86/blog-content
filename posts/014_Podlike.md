@@ -1,4 +1,6 @@
-# Podlike: Emulating Kubernetes pods on Docker Swarm mode
+# Podlike
+
+Emulating Kubernetes pods on Docker Swarm mode.
 
 Running co-located containers with shared resources is not a k8s exclusive feature. If your favorite container orchestrator is not *(yet)* Kubernetes, then this post may be of use for you. Let me introduce a new application, [Podlike](https://github.com/rycus86/podlike), that enables *emulated* pods for Swarm mode with Docker.
 
@@ -71,9 +73,9 @@ services:
           - CACHE_SSL_ON=true
       # copy the cache configuration file in place
       pod.copy.cache: |
-        /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
-        /etc/conf/ssl.cert:/etc/ssl/myapp.cert
-        /etc/conf/ssl.key:/etc/ssl/myapp.key
+        - /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
+        - /etc/conf/ssl.cert:/etc/ssl/myapp.cert
+        - /etc/conf/ssl.key:/etc/ssl/myapp.key
       # TODO make pod.copy. accept a multiline copy config, trimming whitespace
       # an app for nicely formatted health status, based on checks from the legacy app
       pod.component.healthz: |
@@ -167,9 +169,9 @@ services:
         /etc/conf/logging.conf:/opt/legacy/app/conf/logs.xml
       # copy the cache configuration file in place
       pod.copy.cache: |
-        /etc/conf/cache.conf:/opt/cache/conf.d/default.conf
-        /etc/conf/ssl.cert:/etc/ssl/myapp.cert
-        /etc/conf/ssl.key:/etc/ssl/myapp.key
+        /etc/conf/cache.conf: /opt/cache/conf.d/default.conf
+        /etc/conf/ssl.cert:   /etc/ssl/myapp.cert
+        /etc/conf/ssl.key:    /etc/ssl/myapp.key
     # ports published on the service
     ports:
       - 443:443
