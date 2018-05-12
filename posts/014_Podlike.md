@@ -54,7 +54,7 @@ version: '3.5'
 services:
 
   my-app:
-    image: rycus86/podlike:0.0.1
+    image: rycus86/podlike:0.0.2
     labels:
       # our existing application we're going to enrich with other components
       pod.component.server: |
@@ -160,7 +160,7 @@ version: '3.5'
 services:
 
   my-app:
-    image: rycus86/podlike:0.0.1
+    image: rycus86/podlike:0.0.2
     labels:
       # the Compose file where each service will become a component
       pod.compose.file: /etc/conf/components.yaml
