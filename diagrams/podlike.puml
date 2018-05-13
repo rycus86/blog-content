@@ -1,0 +1,36 @@
+@startuml
+
+frame "Swarm service task" #99E899 {
+    [Controller] << rycus86/podlike >> as CNT #E89999
+    [Shared volumes] as VOL #E8E833
+
+    note left of VOL #E8E8E8
+      Local to
+      the task
+    endnote
+
+    frame "Components" as CMPS #9999E8 {
+        [Component A] as C1 #99E8E8
+        [Component B] as C2 #99E8E8
+        [Component C] as C3 #99E8E8
+        [Component D] as C4 #99E8E8
+    }
+
+    note bottom of CMPS #E8E8E8
+      Shared:
+      - cgroup parent
+      - PID namespace
+      - IPC namespace
+      - Network namespace
+    endnote
+}
+
+CNT . VOL
+CNT - CMPS : Manage
+
+C1 -u-> VOL : Write
+C2 -u-> VOL : Read
+C3 -u-> C1 : Signal
+C4 -u-> C2 : Local\nHTTP requests
+
+@enduml
