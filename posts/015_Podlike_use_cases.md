@@ -2,7 +2,7 @@
 
 If we can run co-located containers on Docker Swarm mode, what can we use them for? This post goes through a few made-up example stacks, and explains the setup and configuration of the components within the sort-of pods.
 
-Hopefully, you've read the [previous post](TODO), which introduced [Podlike](https://github.com/rycus86/podlike), an application that attempts to emulate some of the features you'd get from a Kubernetes [pod](TODO docs), implemented for Docker containers managed by Swarm mode. In the intro, I've tried to explain the concepts and the design behind it, but haven't showed any concrete examples for use-cases I think *"pods"* can be useful, so I'll do it in this post. We're going to start with smaller examples, focusing on one or two features you get from tightly coupled containers, then we're off to deeper waters with larger, and sadly, more complex stacks.
+Hopefully, you've read the [previous post](TODO), which introduced [Podlike](https://github.com/rycus86/podlike), an application that attempts to emulate some of the features you'd get from a Kubernetes [pod](TODO docs), implemented for Docker containers managed by Swarm mode. In the intro, I've tried to explain the concepts and the design behind it, but haven't showed any concrete examples for use-cases I think *"pods"* can be useful, so I'll do it in this post. We're going to start with smaller examples, focusing on one or two features you get from tightly coupled containers, then we're off to deeper waters with larger, and sadly, more complex stacks. You can find instructions on how to run them either on your machine or on the [Docker Playground](https://labs.play-with-docker.com/) in the [examples](https://github.com/rycus86/podlike/tree/master/examples) section of the project on GitHub.
 
 The applications are small Python web servers or standalone programs in most cases, that only serve demonstration purposes, they're not implemented to have any usefulness (TODO spelling) or value really. What I'm focusing on, is what can you get from external components carrying logic you can avoid adding to the application itself, and what are the minimal changes to the app if any. Most of the examples, if not all of them, can be implemented in different ways that would probably make more sense, I'll try to call them out, so take these as an alternative option for running multiple services that need to work together in some ways.
 
@@ -20,7 +20,7 @@ It's a lot to cover, so let's get started!
 
 ## Sidecar
 
-> TODO is a diagram an overkill here?
+> TODO diagram
 
 The first example takes an existing [Flask](TODO) application, that is running behind [demo.viktoradam.net](https://demo.viktoradam.net), and adds caching and *serve-stale-on-error* functionality using an [Nginx](TODO) reverse proxy in front of it. The application itself doesn't need to support these at all, no code changes are required, and adding retry logic, circuit breaking, etc. would be just as easy.
 
@@ -73,11 +73,70 @@ As an alternative, you could use a web server or reverse proxy here, that can dy
 
 ## Health-checks
 
-In this example, we take a Java application that we've grown to love in whatever state it's in, and wouldn't change it for anything. It writes some very important reports to disk, and exports (TODO term) a JMX bean that can tell us if it's made any progress in the last 5 seconds. Now we decide to run this app on our existing Swarm cluster, and we want to hook it up to our HTTP ping based liveness checking infrastructure.
+In this example, we take a Java application that we've grown to love in whatever state it's in, and wouldn't change it for anything. It writes some very important reports to disk, and exports (TODO term) a JMX bean that can tell us if it's made any progress in the last 5 seconds. Now we decide to run this app on our existing Swarm cluster, and we want to hook it up to our HTTP ping based liveness checking infrastructure. We're going to take advantage of the shared PID and network namespaces, plus a shared volume to set this up as a unit.
 
-> TODO
+> TODO diagram
+
+The HTTP *healhtz* endpoint is going to be exposed by [Goss](TODO), a pretty nice system-check tool (TODO term), that has a [YAML configuration](TODO link to goss.yaml) describing the set of tests to execute. If all of them pass, the status is healthy, otherwise it's failing. It checks that the `java` process is running, the report file exists, and that it's been last written no longer than 1 minute ago. It also checks that the Prometheus [JMX exporter](TODO) is running, available, and that its metrics indicate the Java application is also reporting itself as healthy.
+
+> See the [health-check example](https://github.com/rycus86/podlike/tree/master/examples/healthz) with the app, the exporter and the health-checker in the `app`, `exporter` and `goss` folders respectively!
+
+There are many alternatives to do this on Swarm. You could run the JMX exporter as a separate service, if you open up the JMX endpoint on the Java app to accept remote connections, and then just use the `metrics` endpoint provided. This wouldn't check that the application produces what it should in the output file though. You could write that into some sort of cluster-wide shared volume, like one backed by an NFS share, and have another service executing the tests on it, then reconcile the two checks on the monitoring system. And of course, you could just change the Java application to give up its resistance against HTTP servers, and just add an endpoint directly there.
 
 ## Service mesh
 
+Moving on to some bigger examples now, with more services in the stack, where some of them can be imagined as a shared system each application should integrate with, for service discovery, logging or tracing for example, I'll call these out.
+
+First up, it's an example for a *DYI* service mesh that helps us break up our monolithic calculator app to split out individual functions of it into microservices. We want the applications to be simple, and only deal with the business logic, not worrying about discovery, routing, rate limiting, etc. We also want to throw distributed tracing into the mix, so we can easily debug requests now that they're not handled by a single service.
+
+Each Python application is going to be coupled with a [Consul](https://www.consul.io/) agent for service discovery, and a [Traefik](https://traefik.io/) reverse proxy that does the routing to and between them. The stack contains another *Traefik* instance acting as the frontend router that accepts external requests from users, a *Consul* server the agents can join to, and an [OpenTracing](http://opentracing.io/) compatible [Zipkin](https://zipkin.io/) server that records the distributed traces of the HTTP communication. A key point to make here is that the apps are not aware of the number and address of the other services they talk to, they don't need to be, instead they simply talk to their local proxy that knows how to route requests to the appropriate application.
+
+> TODO diagram
+
+For each application, their local *router* is going to accept the incoming requests, then it passes it to the app on `localhost`, so no additional network traffic here. When the app wants to talk to another one, it will make a request to `http://localhost/<target_app>/uri`, and its *router* is going to forward it to one of the appropriate instances, again going through their reverse proxies. The *Traefik* instances know everyone's addresses they need to from the local *Consul* agent, which registers the address of the *"pod"* it's running in with the central server. It also does some basic [health-checks](TODO link to consul checks docs), so unhealthy instances won't be routed to. Every *Traefik* instance is configured to record and submit tracing information to the central *Zipkin* instance, so you can look at the distributed traces on port `9411` on any of the Swarm nodes' addresses. Another important thing to note that we haven't added support for this in the applications themselves, they just deal with their very important and complex business logic. The only change to get nice, connected traces is to copy the HTTP headers of the incoming request to any outgoing HTTP requests, if they haven't done so already.
+
+> Check out the stack in the [service mesh example](https://github.com/rycus86/podlike/tree/master/examples/service-mesh) on GitHub!
+
+This setup gives you a lot of extras over plain REST applications, such as service discovery, distributed tracing, and load-balancing, rate limiting, retries, secure communication plus anything else the reverse proxy supports, all __without__ having to add these to the applications' codebase. It comes at the cost of more running applications in the stack, that also means more resources consumed, so you'll need to weigh the benefits against this. I'm not aware of any service meshes readily available for Docker Swarm mode, *but please someone let me know if there is one*, you could look at [Istio](TODO) or [Linkerd](TODO) as an alternative, both of them available for Kubernetes.
+
 ## Modernized stack
+
+The last example is going to build on almost everything we looked at above, using PID and network namespaces, and a shared volume. It is going to be a service mesh with distributed tracing that is similar to the previous stack, but with added central log aggregation and metrics collection. There are 3 applications implementing the business logic in this one as well:
+
+- The `data-server` returns some configuration and static config as JSON
+- The `renderer` can render an HTML [Jinja2](TODO) template using data from this JSON
+- The `aggregator` receives the incoming requests, then coordinates the data fetch and the HTML rendition with the other two
+
+Each of them is coupled with:
+
+- A *Traefik* `proxy` for accepting incoming connections to the app, and to forward requests to other services from the app
+- A *Consul* agent for service discovery, and to act as a [Key-Value store](TODO consul docs) for the `data-server`
+- An *OpenTracing* compatible [Jaeger](TODO) agent for HTTP request tracing
+- A [Fluentbit](TODO link + spelling) agent to pick up logs from files on a shared volume and forward them to the central log aggregator *(see below the diagram)*
+
+> TODO one log volume per app, also renderer writes to aggregator/app.log and refers to it everywhere
+
+> TODO diagram
+
+The stack also includes quite a few other services to make it *modern*:
+
+- A frontend *Traefik* `router` as the main HTTP entrypoint to the cluster
+- A central *Consul* server the local agents can connect to
+- [Prometheus](TODO) with [Grafana](TODO) for scraping and displaying metrics (TODO add them to the stack)
+- [Elasticsearch](TODO) with [Kibana](TODO) for storing and visualizing the logs
+- A central [Fluentbit](TODO link + spelling) to forward logs from the local agents to *Elasticsearch*
+- A *Jaeger* collector and UI for distributed traces, also stored in *Elasticsearch*
+- An extra *Jaeger* agent in the stack for the frontend `router` to report to
+- An *Nginx* instance that serves the static bits for `data-server` (TODO add the Consul instance to the diagram here, and maybe a note here)
+
+There is quite a bit going on here, but it is pretty straightforward. The apps get registered in service discovery, their reverse proxy passes requests to and from them, their logs are sent to a central system, and the metrics from the proxies (TODO anything else?) are stored centrally as well, and this looks pretty much the same for each application. All the other services are part of the infrastructure, and don't really need to change much when more applications are added to the stack.
+
+> TODO more description + alternatives
+
+> TODO the volume needs to be unique for tasks running on the same node
+
+## Conclusion (TODO something different as the section name here?)
+
+> TODO note about scaling the pods individually
+> TODO note about templating
 
