@@ -89,7 +89,7 @@ First up, it's an example for a *DYI* service mesh that helps us break up our mo
 
 Each Python application is going to be coupled with a [Consul](https://www.consul.io/) agent for service discovery, and a [Traefik](https://traefik.io/) reverse proxy that does the routing to and between them. The stack contains another *Traefik* instance acting as the frontend router that accepts external requests from users, a *Consul* server the agents can join to, and an [OpenTracing](http://opentracing.io/) compatible [Zipkin](https://zipkin.io/) server that records the distributed traces of the HTTP communication. A key point to make here is that the apps are not aware of the number and address of the other services they talk to, they don't need to be, instead they simply talk to their local proxy that knows how to route requests to the appropriate application.
 
-> TODO diagram
+![Service mesh components](https://raw.githubusercontent.com/rycus86/podlike/master/examples/service-mesh/components.png)
 
 For each application, their local *router* is going to accept the incoming requests, then it passes it to the app on `localhost`, so no additional network traffic here. When the app wants to talk to another one, it will make a request to `http://localhost/<target_app>/uri`, and its *router* is going to forward it to one of the appropriate instances, again going through their reverse proxies. The *Traefik* instances know everyone's addresses they need to from the local *Consul* agent, which registers the address of the *"pod"* it's running in with the central server. It also does some basic [health-checks](TODO link to consul checks docs), so unhealthy instances won't be routed to. Every *Traefik* instance is configured to record and submit tracing information to the central *Zipkin* instance, so you can look at the distributed traces on port `9411` on any of the Swarm nodes' addresses. Another important thing to note that we haven't added support for this in the applications themselves, they just deal with their very important and complex business logic. The only change to get nice, connected traces is to copy the HTTP headers of the incoming request to any outgoing HTTP requests, if they haven't done so already.
 
@@ -112,7 +112,7 @@ Each of them is coupled with:
 - An *OpenTracing* compatible [Jaeger](TODO) agent for HTTP request tracing
 - A [Fluentbit](TODO link + spelling) agent to pick up logs from files on a shared volume and forward them to the central log aggregator *(see below the diagram)*
 
-> TODO diagram
+![Modernized stack components](https://raw.githubusercontent.com/rycus86/podlike/master/examples/modernized/components.png)
 
 The stack also includes quite a few other services to make it *modern*:
 
