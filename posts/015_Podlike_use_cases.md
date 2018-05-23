@@ -45,8 +45,6 @@ The *not-so-nice* thing to note here, is that all volumes are shared between all
 
 An alternative here could be running a log forwarder agent on each Swarm node, that is preconfigured to look for log files in a specific folder, and the app service would point a *mount* to this same folder. This assumes individual configuration on the application and the log forwarder agent, plus the chosen path should exist, and the filenames should be distinct to avoid one service trying to write another one's logs files.
 
-> TODO change the log volumes to individual ones for the modernized example
-
 ## Sending UNIX signals
 
 > TODO diagram
@@ -114,29 +112,37 @@ Each of them is coupled with:
 - An *OpenTracing* compatible [Jaeger](TODO) agent for HTTP request tracing
 - A [Fluentbit](TODO link + spelling) agent to pick up logs from files on a shared volume and forward them to the central log aggregator *(see below the diagram)*
 
-> TODO one log volume per app, also renderer writes to aggregator/app.log and refers to it everywhere
-
 > TODO diagram
 
 The stack also includes quite a few other services to make it *modern*:
 
 - A frontend *Traefik* `router` as the main HTTP entrypoint to the cluster
 - A central *Consul* server the local agents can connect to
-- [Prometheus](TODO) with [Grafana](TODO) for scraping and displaying metrics (TODO add them to the stack)
+- [Prometheus](TODO) with [Grafana](TODO) for scraping and displaying metrics
 - [Elasticsearch](TODO) with [Kibana](TODO) for storing and visualizing the logs
 - A central [Fluentbit](TODO link + spelling) to forward logs from the local agents to *Elasticsearch*
 - A *Jaeger* collector and UI for distributed traces, also stored in *Elasticsearch*
 - An extra *Jaeger* agent in the stack for the frontend `router` to report to
-- An *Nginx* instance that serves the static bits for `data-server` (TODO add the Consul instance to the diagram here, and maybe a note here)
+- An *Nginx* instance that serves the static bits for `data-server`
+- One more local *Consul* agent running in the same network namespace as *Nginx* for service discovery
 
-There is quite a bit going on here, but it is pretty straightforward. The apps get registered in service discovery, their reverse proxy passes requests to and from them, their logs are sent to a central system, and the metrics from the proxies (TODO anything else?) are stored centrally as well, and this looks pretty much the same for each application. All the other services are part of the infrastructure, and don't really need to change much when more applications are added to the stack.
+There is quite a bit going on here, but it is pretty straightforward. The apps get registered in service discovery, their reverse proxy passes requests to and from them, their logs are sent to a central system, and the metrics from the proxies are stored centrally as well, and this looks pretty much the same for each application. All the other services are part of the infrastructure, and don't really need to change much when more applications are added to the stack.
 
-> TODO more description + alternatives
+> Read the instructions for the [modernized example](https://github.com/rycus86/podlike/tree/master/examples/modernized), and try it out on [Play with Docker](TODO)!
 
-> TODO the volume needs to be unique for tasks running on the same node
+I cannot stress it enough, that you get all of these extra benefits from the *supporting* components in the stack __without__ changing the application, it doesn't need to do anything differently, perhaps apart from propagating HTTP headers, and the coupled containers take care of everything we talked about above. Once you worked out what components you need to surround the applications with, it's pretty much the same for the others you'll add in the future. And all these apps can simply focus on delivering business value, not about correctly implementing caching, circuit breaking, retries with exponential backoff, registering in service discovery, custom frameworks for logging that play nice with the log aggregator, etc. To get finer grained (TODO spelling) metrics and traces, you'll probably have to add some support to the application code eventually, but it should be fairly low touch and straightforward, since you have the infrastructure for it already working. And if you don't add it, you still get a lot from instrumenting the supporting components.
 
-## Conclusion (TODO something different as the section name here?)
+If you decide to take this stack for a spin, you'll find the main application accessible on port `80`, the *Traefik* dashboard on `8080`, and you can have a look at the current state of services and the service discovery metadata on the *Consul* UI on port `8500`. You'll find *Kibana* on port `5601` to see the logs from the apps and their reverse proxies, the distributed traces on port `16686` on the *Jaeger* UI, and the metrics on port `3000` in *Grafana*. Everything should be preconfigured for this demo and ready to use, including an example *Grafana* dashboard, its datasource, and the default index pattern in *Kibana*. To have some metrics to look at, hit up `http://127.0.0.1/` a few times, or put some load on it with something like [wrk](TODO).
 
-> TODO note about scaling the pods individually
-> TODO note about templating
+The same notes and alternatives we had for the service mesh example apply here as well. Another angle we could try is using well-tested libraries inside the applications instead of in components around it. *Prometheus* has pretty good [client libraries](TODO), I have one for [Flask](TODO) as well, *OpenTracing* also has some [decent ones](TODO java lib), you can probably find a logging library that suits your infra setup, you could throw in some HTTP request handling magic with [Hystrix](TODO), and get the app registered in service discovery with something like [ZooKeeper](TODO) and its [Curator](TODO) framework.
+
+## Conclusion
+
+I hope I managed to demonstrate well enough that you can get loads of benefits from having a modern infrastructure in place. If you have a large number of existing applications, you can probably move them to this setup much easier and quicker, since the changes you need in their codebase is next to nothing.
+
+The stacks in the examples inline a lot of configuration in the YAML file for demonstration purposes, but you can *and should* have it extracted into separate configuration files for easier maintenance. Each of the *pods* should scale horizontally nicely and individually, they don't assume anything about how Swarm would end up scheduling the services on the available number or nodes. If you find any issues with them, let me know, and I'll attempt to fix it.
+
+While working on these examples and typing in the hundreds of lines of YAML code, repeating similar changes in multiple places for a single stack, I have realized that for this to be convenient, we'll need some sort of templating support. If we could simply annotate our applications with labels that describe the *kind* of supporting components they need, like *HTTP-related*, *with-logging*, *with-SD*, etc., then I think it would be much quicker to add new apps and roll out template updates across (TODO spelling) all the existing ones. Watch the [Podlike](TODO) project to see if I manage to come up with something, or help out if you can! :)
+
+Let me know what you think of all this, and would love to hear feedback and ideas from you! Thank you!
 
