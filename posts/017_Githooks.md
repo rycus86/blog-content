@@ -8,7 +8,7 @@ Let's start with discussing these issues around setup, then a potential solution
 
 [Git hooks](https://git-scm.com/docs/githooks) normally live inside the `.git/hooks` folders of local repositories. These can contain one executable per trigger event, like `pre-commit` or `post-checkout` that is run by various `git` commands automatically. Sounds magical, what's the problem with this?
 
-The `.git` folder is excluded from version control, it only lives on your machine. To get a hook in place, you either have to copy an executable file with the trigger's name into the `.git/hooks` folder or symlink one into it. The latter is good practise if you want to put the hook files inside the repository, so at least they have version history and people working on the same project can install them easily. But do they? In my experience, anything that you *should optionally* do is often ignored for these sorts of things.
+The `.git` folder is excluded from version control, it only lives on your machine. To get a hook in place, you either have to copy an executable file with the trigger's name into the `.git/hooks` folder or symlink one into it. The latter is good practice if you want to put the hook files inside the repository, so at least they have version history and people working on the same project can install them easily. But do they? In my experience, anything that you *should optionally* do is often ignored for these sorts of things.
 
 The next problem is the fact that you can have one of these files per event. If you want to execute multiple actions for a single trigger, you could write a longer Bash script, code it up in a language that you can compile into a single static binary, or split them into multiple files and make the main entrypoint execute the additional functionality living in the split files. This last one probably doesn't make symlinking and working with paths much easier, but it's completely doable as we'll see later.
 
@@ -64,4 +64,3 @@ You can find some examples in these projects as well:
 ## Conclusion
 
 I'd love to hear your ideas and feedback on what do you think makes sense done in a client-side hook, any suggestions people could commonly use either at work or on open-source, collaborative projects. And if you're giving this a go, let me know how that goes, and please file any issues you find on the project's [GitHub repo](https://github.com/rycus86/githooks). Thank you!
-
