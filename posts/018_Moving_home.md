@@ -235,38 +235,92 @@ The only bit missing now was the custom domain mapping, and hooking it all up to
 Terraform supports the [Cloudflare provider](https://www.terraform.io/docs/providers/aws/), that lets you manage DNS records, page rules (TODO examples?) and other settings. It will need the email address and the access token for the API access, that you can give Terraform as environment variables.
 
 ```shell
-$ export CLOUDFLARE_EMAIL=x
-$ export CLOUDFLARE_TOKEN=y TODO
+$ export CLOUDFLARE_EMAIL=abc@def.xx
+$ export CLOUDFLARE_TOKEN=xyz1234efefef
 ```
 
-What I needed here, is to be able to set the DNS records for my API Gateway endpoints to the CloudFront (TODO spelling, caps) domain name with `CNAME` type. At this point, I already had a couple of subdomains manually configured, so I had a look how to [connect Terraform with Cloudflare](https://developers.cloudflare.com/terraform/advanced-topics/importing-state/) and [import](https://www.terraform.io/docs/commands/import.html) the existing settings. For this *resource* type, `terraform import` needs the zone name and the ID of the record in Cloudflare. This can be done with the following command.
+What I needed here, is to be able to set the DNS records for my API Gateway endpoints to the CloudFront domain name with `CNAME` type. At this point, I already had a couple of subdomains manually configured, so I had a look how to [connect Terraform with Cloudflare](https://developers.cloudflare.com/terraform/advanced-topics/importing-state/) and [import](https://www.terraform.io/docs/commands/import.html) the existing settings. For this *resource* type, `terraform import` needs the zone name and the ID of the record in Cloudflare. This can be done with the following command.
 
 ```shell
-$ curl api.cloudflare/dns_records (TODO)
+$ export ZONE_ID=abcdef1234
+$ curl https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records \
+        -H "X-Auth-Email: $CLOUDFLARE_EMAIL"  \
+        -H "X-Auth-Key: $CLOUDFLARE_TOKEN"    \
+        -H "Content-Type: application/json" | jq .
 ```
 
 Now I needed the actual HCL configuration for them.
 
 ```python
-TODO cloudflare tf
+variable "cloudflare_zone" {
+  default = "viktoradam.net"
+}
+
+data "aws_acm_certificate" "all_domains_cert" {
+  domain   = "*.viktoradam.net"
+  statuses = ["ISSUED"]
+  provider= "aws.us-east-1"
+}
+
+resource "aws_api_gateway_domain_name" "apigw_domain_www" {
+  domain_name     = "www.viktoradam.net"
+  certificate_arn = "${data.aws_acm_certificate.all_domains_cert.arn}"
+}
+
+resource "cloudflare_record" "cf_record_www" {
+  domain  = "${var.cloudflare_zone}"
+  name    = "www"
+  value   = "${aws_api_gateway_domain_name.apigw_domain_www.cloudfront_domain_name}"
+  type    = "CNAME"
+  proxied = "true"
+}
+
+resource "aws_api_gateway_domain_name" "apigw_domain_api" {
+  domain_name     = "api.viktoradam.net"
+  certificate_arn = "${data.aws_acm_certificate.all_domains_cert.arn}"
+}
+
+resource "cloudflare_record" "cf_record_api" {
+  domain  = "${var.cloudflare_zone}"
+  name    = "api"
+  value   = "${aws_api_gateway_domain_name.apigw_domain_api.cloudfront_domain_name}"
+  type    = "CNAME"
+  proxied = "true"
+}
 ```
 
 And finally I was ready to import them into the local Terraform state.
 
 ```shell
-$ terraform import TODO
+$ terraform import cloudflare_record.cf_record_www viktoradam.net/abcd1234
+$ terraform import cloudflare_record.cf_record_api viktoradam.net/xyz01234
 ```
 
 A quick `terraform plan` now showed that everything looks fine, there aren't any differences between the configuration and the state. Next, I tried pointing another domain to the same integration. First, I needed the AWS configuration that makes the new CloudFront subdomain available.
 
 ```python
-TODO terraform bits that are needed for a new domain
+resource "aws_api_gateway_domain_name" "apigw_domain_demo" {
+  domain_name     = "demo.viktoradam.net"
+  certificate_arn = "${data.aws_acm_certificate.all_domains_cert.arn}"
+}
+
+resource "aws_api_gateway_base_path_mapping" "apigw_base_path_blog_demo" {
+  api_id      = "${aws_api_gateway_rest_api.apigw_rest_blog.id}"
+  stage_name  = "${aws_api_gateway_deployment.apigw_blog_deployment.stage_name}"
+  domain_name = "${aws_api_gateway_domain_name.apigw_domain_demo.domain_name}"
+}
 ```
 
-At this point, I haven't added the Cloudflare configuration yet, because the new domain takes up to about 40 minutes to be available, though in my tests it started working in about 10 minutes. Once a simple `curl` test succeeded (TODO spelling), I could add in the missing bits for the DNS record change.
+At this point, I haven't added the Cloudflare configuration yet, because the new domain takes up to about 40 minutes to be available, though in my tests it started working in about 10 minutes. Once a simple `curl` test succeeded, I could add in the missing bits for the DNS record change.
 
 ```python
-TODO cloudflare resource for DNS record
+resource "cloudflare_record" "cf_record_demo" {
+  domain  = "${var.cloudflare_zone}"
+  name    = "demo"
+  value   = "${aws_api_gateway_domain_name.apigw_domain_demo.cloudfront_domain_name}"
+  type    = "CNAME"
+  proxied = "true"
+}
 ```
 
 I had to import this new resource into the local Terraform state now, then a `terraform plan` showed that it would change the type from `A` to `CNAME`, and the value from an origin IP address to the new domain name we've got from CloudFront. This looked all right, so I applied the change with `terraform apply`.
@@ -276,31 +330,137 @@ I had to import this new resource into the local Terraform state now, then a `te
 The next step was to move the Ghost instance that powers this blog to the EC2 instance I had running already. Now that I was able to do the redirects with Lambda functions, I could drop Nginx from the stack, and just go with a simple Traefik plus Ghost setup.
 
 ```yaml
-TODO stack yaml
+version: '3.7'
+services:
+
+  router:
+    image: traefik:1.6.5
+    env_file: ./cloudflare.env
+    deploy:
+      update_config:
+        parallelism: 1
+        order: start-first
+      resources:
+        limits:
+          memory: 48M
+    ports:
+      - 443:443
+    volumes:
+      - ./traefik.toml:/etc/traefik/traefik.toml:ro
+      - traefik-certs:/etc/traefik/acme
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: 25m
+
+  blog:
+    image: ghost:1.22.8
+    deploy:
+      update_config:
+        parallelism: 1
+        order: start-first
+      resources:
+        limits:
+          memory: 256M
+    environment:
+      - url=https://blog.viktoradam.net
+      - caching__frontend__maxAge=900
+    volumes:
+      - ghost-data:/var/lib/ghost/content/data:nocopy
+      - ghost-images:/var/lib/ghost/content/images:nocopy
+      - ghost-themes:/var/lib/ghost/content/themes:nocopy
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: 25m
+
+volumes:
+  ghost-data:
+  ghost-images:
+  ghost-themes:
+  traefik-certs:
 ```
 
-I've carefully encrypted the sensitive files with [git-crypt](https://github.com/AGWA/git-crypt), and uploaded the project into a private repository in [BitBucket](https://bitbucket.org/). On the EC2 instance, I had to install `git-crypt`, clone the repository, then import the secret key and unlock the files. I was ready to try it, but to test it first, I switched over to the staging Let's Encrypt endpoint to get a testing certificate.
+I've carefully encrypted the sensitive files with [git-crypt](https://github.com/AGWA/git-crypt), and uploaded the project into a private repository in [BitBucket](https://bitbucket.org/). On the EC2 instance, I had to install `git-crypt`, clone the repository, then import the secret key and unlock the files. I was ready to try it, but to test it first, I switched over to the staging Let's Encrypt endpoint to get a testing certificate. For the domain verification step, a new Cloudflare DNS record is added automatically, and Traefik gets access to the API with the credentials passed in with the `env_file`.
 
 ```ini
-TODO traefik.toml with acme staging
+defaultEntryPoints = ["https"]
+
+[accesslog]
+
+[entryPoints]
+  [entryPoints.https]
+  address = ":443"
+    [entryPoints.https.tls]
+
+[acme]
+email = "email@for-acme.com"
+storage = "/etc/traefik/acme/acme.json"
+entryPoint = "https"
+acmeLogging = true
+caServer = "https://acme-staging-v02.api.letsencrypt.org/directory
+onHostRule = false
+  [acme.dnsChallenge]
+  provider = "cloudflare"
+  delayBeforeCheck = 30
+
+[[acme.domains]]
+  main = "blog.viktoradam.net"
+
+[frontends]
+  [frontends.ghost]
+  backend = "ghost"
+    [frontends.ghost.routes.main]
+    rule = "Host:blog.viktoradam.net"
+
+[backends]
+  [backends.ghost]
+    [backends.ghost.servers.server1]
+    url = "http://blog:2368"
+
+[file]
 ```
 
 This configuration makes Traefik listen only on the HTTPS endpoint, the only one I need, then route every request on the `blog.viktoradam.net` domain to the `ghost` backend instance. It was time to start the services, and see what happens. I used Docker Swarm instead of Compose, because I had existing configuration for it, and there isn't much downside to staying on it.
 
 ```shell
 $ docker swarm init
-TODO output?
+Swarm initialized: current node (vny3efwscsqv0tbc47gm9foit) is now a manager.
+
+To add a worker to this swarm, run the following command:
+
+    docker swarm join --token SWMTKN-1-01813iv2h4v234bk-2937432jk42kj4b23k 192.168.9.72:2377
+
+To add a manager to this swarm, run 'docker swarm join-token manager' and follow the instructions.
+
 $ docker stack deploy -c stack.yml aws
 ...
 $ docker service ls
-TODO output
+ID                  NAME                    MODE                REPLICAS            IMAGE                                     PORTS
+i1vt4iu683v2        aws_blog                replicated          1/1                 ghost:1.22.8
+nuncmk34ezov        aws_router              replicated          1/1                 traefik:1.6.5                             *:443->443/tcp
 ```
 
 This looked OK, both services were up and running. My DNS record was still pointing to my own servers, so I could test this only by pointing to the EC2 instance's public IP directly.
 
 ```shell
-$ curl -k -s -v -H 'Host: blog.viktoradam.net' https://11.22.33.44/ > /dev/null
-TODO ouput
+$ curl -k -s -v -H 'Host: blog.viktoradam.net' https://9.8.7.6/ > /dev/null
+...
+> GET / HTTP/2
+> Host: blog.viktoradam.net
+> User-Agent: curl/7.61.0
+> Accept: */*
+>
+...
+< HTTP/2 200
+< cache-control: public, max-age=900
+< content-type: text/html; charset=utf-8
+< date: Sat, 25 Aug 2018 12:31:22 GMT
+< etag: W/"73af-NO8tANLZz6/wHX9AzNT8rPfNN2g"
+< vary: Accept-Encoding
+< x-powered-by: Express
+<
+...
 ```
 
 Great, I now had a vanilla Ghost running on EC2, so I could start moving the data and configuration to it. These live in Docker volumes I attached to the service, and those volumes were created the `docker stack deploy` command. I needed to replace the contents of them with the data I had from my running, self-hosted blog. First, I needed to stop the container on EC2.
@@ -312,17 +472,38 @@ $ docker service update aws_blog --replicas 0
 This keeps the service definition and related volumes in Docker Swarm, but scales its tasks down to zero, effectively stopping any running instances. I was ready to copy my local data to EC2 now, so I used `tar` locally to get a single, compressed package of the [SQLite database](https://www.sqlite.org/index.html), the images and the theme folder each, then sent them to the target with `scp`.
 
 ```bash
-TODO scp -i $1 $2  # usage
+#!/usr/bin/env sh
+#
+# Can be used as:
+#   scp-to-aws /local/file /remote/file
+
+scp -i ~/.ssh/aws-ec2.pem $1 user@55.54.53.52:$2
 ```
 
 Now I just had to move this data in place, that is into the existing Docker volumes. You can find the location of the volume data folder on the host file system easily.
 
 ```shell
 $ docker volume ls
-TODO samples
-$ docker volume inspect <volname>
-TODO sample output
-$ cd /var/lib/docker/volumes/<volid>/_data
+DRIVER              VOLUME NAME
+local               aws_ghost-data
+local               aws_ghost-images
+local               aws_ghost-themes
+local               aws_traefik-certs
+$ docker volume inspect aws_ghost-data
+[
+    {
+        "CreatedAt": "2018-08-22T20:04:46Z",
+        "Driver": "local",
+        "Labels": {
+            "com.docker.stack.namespace": "aws"
+        },
+        "Mountpoint": "/var/lib/docker/volumes/aws_ghost-data/_data",
+        "Name": "aws_ghost-data",
+        "Options": null,
+        "Scope": "local"
+    }
+]
+$ cd /var/lib/docker/volumes/aws_ghost-data/_data
 $ ls
 ghost.db
 ```
@@ -330,19 +511,37 @@ ghost.db
 Note, that you'll likely need `root` to access the contents of this directory. A quick `tar xzvf`, and I was ready to start the blog with the same content I had locally. After a `docker service update aws_blog --replicas 1`, Ghost was online, and I could test how it looks by changing my local `/etc/hosts` file to use the EC2 public IP address for the domain. Everything looked all right, so I just needed the last missing bit in the Terraform config. First, I needed to register the EC2 instance in it.
 
 ```python
-TODO hcl for ec2 data
+data "aws_instance" "blog" {
+  instance_id = "i-12345abcd"
+
+  filter {
+    name   = "image-id"
+    values = ["ami-98765xyz"]
+  }
+
+  filter {
+    name   = "tag:example"
+    values = ["demo"]
+  }
+}
 ```
 
 Then import its current state.
 
 ```shell
-$ terraform import TODO ec2
+$ terraform import aws_instance.blog i-12345abcd
 ```
 
 The last step was the configuration to change my Cloudflare DNS record to point to the new target IP address.
 
 ```python
-TODO hcl for blog domain DNS record
+resource "cloudflare_record" "cf_record_blog" {
+  domain  = "${var.cloudflare_zone}"
+  name    = "blog"
+  value   = "${data.aws_instance.blog.public_ip}"
+  type    = "A"
+  proxied = "true"
+}
 ```
 
 Now that the blog was hosted in AWS, I could stop it in my local home stack with `docker service rm web_blog`. During the change, I had my [Uptime Robot](https://uptimerobot.com/) monitoring working to tell me if it becomes unavailable, but everything went all right thankfully.
@@ -360,10 +559,15 @@ done
 I could now drop my whole logging stack with `docker stack rm logging`. When I looked at the remaining services, I've realized that there isn't much running there anymore, mainly [monitoring](https://github.com/rycus86/home-stack-monitoring). I had a guess, that I could probably move most of that to AWS and still fit them within the 1 GB memory limit I have on the EC2 instance. I copied their configuration into the new stack YAML file, then summed up the total memory limit.
 
 ```shell
-$ cat stack.yml | grep 'memory:' | awk ... TODO
+$ cat stack.yml |           \
+    grep memory: |          \
+    awk '{ print $2 }' |    \
+    sed 's/M//' |           \
+    python -c "import sys; print(sum(int(l) for l in sys.stdin))"
+784
 ```
 
-This came out 750 MB (TODO), which should still be all right, even if barely. I changed the Swarm configs and secrets to simpler volume mount, then I went ahead to push the change, and redeployed the stack on the EC2 host. Everything came up nicely, so I switched the domain pointing to [Grafana](https://grafana.com/) to the EC2 public IP, added the [Prometheus](https://prometheus.io/) data source and the dashboards I saved from the local instance.
+This came out 784 MB, which should still be all right, even if barely. I changed the Swarm configs and secrets to simpler volume mount, then I went ahead to push the change, and redeployed the stack on the EC2 host. Everything came up nicely, so I switched the domain pointing to [Grafana](https://grafana.com/) to the EC2 public IP, added the [Prometheus](https://prometheus.io/) data source and the dashboards I saved from the local instance.
 
 > TODO insert image of memory graph
 
@@ -377,5 +581,4 @@ The only thing that went wrong here was, that I forgot to get Cloudflare to bypa
 
 I have also added some additional Terraform configuration to support a slightly different redirect endpoint, dealing with my [Githooks](https://github.com/rycus86/githooks) install script URL for example, but at this point it was mostly a copy-paste job of the existing Lambda + API Gateway `.tf` files.
 
-Hopefully, this story could help you if you're looking to do a similar move perhaps, switching from a purely Docker-based configuration to Terraform, or setting up HTTP-accessible services in AWS. If you have any questions or feedback about this setup, find my on Twitter or leave a comment below! Thank you!
-
+Hopefully, this story could help you if you're looking to do a similar move perhaps, switching from a purely Docker-based configuration to Terraform, or setting up HTTP-accessible services in AWS. If you have any questions or feedback about this setup, find me on Twitter or leave a comment below! Thank you!
