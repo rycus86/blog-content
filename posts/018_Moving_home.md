@@ -42,7 +42,11 @@ The endpoint was now almost ready, AWS estimated it takes about 40 minutes to ro
 $ curl -s -v -H 'Host: www.viktoradam.net' https://d1234abcd.cloudfront.net/ > /dev/null
 ```
 
-Once it started working, I was ready to change the DNS record in Cloudflare. While self-hosting this endpoint, it had an `A` record, with the IP address pointing to my origin server. With this CloudFront setup, you'll need a `CNAME` record, where the value is the domain name AWS gives you in the `Domain name` field of the API custom domain. (TODO maybe insert a picture) After a few seconds, the domain was now pointing to AWS, and after a quick Cloudflare cache purge, it was ready for testing.
+Once it started working, I was ready to change the DNS record in Cloudflare. While self-hosting this endpoint, it had an `A` record, with the IP address pointing to my origin server. With this CloudFront setup, you'll need a `CNAME` record, where the value is the domain name AWS gives you in the `Domain name` field of the API custom domain.
+
+![apigw_custom_domain-min](/content/images/2018/08/apigw_custom_domain-min.png)
+
+After a few seconds, the domain was now pointing to AWS, and after a quick Cloudflare cache purge, it was ready for testing.
 
 ```shell
 $ curl -s -v https://www.viktoradam.net/ > /dev/null
@@ -142,7 +146,7 @@ resource "aws_api_gateway_integration" "apigw_blog_integration" {
   uri                     = "${aws_lambda_function.lambda_blog_redirect.invoke_arn}"
 }
 
-resource "aws_api_gateway_integration_response" "apigw_blog_integration_response" 
+resource "aws_api_gateway_integration_response" "apigw_blog_integration_response"
 {
   rest_api_id = "${aws_api_gateway_rest_api.apigw_rest_blog.id}"
   resource_id = "${aws_api_gateway_resource.apigw_blog_resource.id}"
@@ -232,7 +236,7 @@ The only bit missing now was the custom domain mapping, and hooking it all up to
 
 ## Switching DNS
 
-Terraform supports the [Cloudflare provider](https://www.terraform.io/docs/providers/aws/), that lets you manage DNS records, page rules (TODO examples?) and other settings. It will need the email address and the access token for the API access, that you can give Terraform as environment variables.
+Terraform supports the [Cloudflare provider](https://www.terraform.io/docs/providers/aws/), that lets you manage DNS records, page rules, load balancers settings, and others. It will need the email address and the access token for the API access, that you can give Terraform as environment variables.
 
 ```shell
 $ export CLOUDFLARE_EMAIL=abc@def.xx
@@ -569,11 +573,11 @@ $ cat stack.yml |           \
 
 This came out 784 MB, which should still be all right, even if barely. I changed the Swarm configs and secrets to simpler volume mount, then I went ahead to push the change, and redeployed the stack on the EC2 host. Everything came up nicely, so I switched the domain pointing to [Grafana](https://grafana.com/) to the EC2 public IP, added the [Prometheus](https://prometheus.io/) data source and the dashboards I saved from the local instance.
 
-> TODO insert image of memory graph
+![ec2_free_memory-min](/content/images/2018/08/ec2_free_memory-min.png)
 
 I'm also running a [Node exporter](https://github.com/prometheus/node_exporter) there for host-level metrics, like disk space and such, plus my [Release Watcher](https://github.com/rycus86/release-watcher) and the [GitHub exporter](https://github.com/rycus86/github-prometheus-exporter). I have then realized, that I forgot to enable the TCP connection to my Docker daemon, so Prometheus couldn't scrape it directly, I needed a work-around. I already have an [image](https://github.com/rycus86/docker-socat) wrapping [socat](https://linux.die.net/man/1/socat), so I just added that to the stack, and pointed Prometheus to its target port, and now I had Docker engine metrics.
 
-> TODO insert image of running containers
+![ec2_containers-min](/content/images/2018/08/ec2_containers-min.png)
 
 The only thing that went wrong here was, that I forgot to get Cloudflare to bypass the cache for Grafana responses, which made it a bit difficult to log in due to a cached redirect. Once I added a [page rule](https://support.cloudflare.com/hc/en-us/articles/218411427-Page-Rules-Tutorial#cache), everything was working as expected.
 
